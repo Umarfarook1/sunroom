@@ -1,0 +1,12 @@
+import { chromium } from 'playwright-core';
+import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
+const root = path.resolve('proto');
+const srv = http.createServer((q, s) => { const f = path.join(root, q.url.split('?')[0]); fs.readFile(f, (e, d) => { if (e) { s.writeHead(404); s.end(); } else { s.writeHead(200, { 'content-type': 'text/html' }); s.end(d); } }); }).listen(8765);
+const headless = process.argv.includes('--headless');
+const browser = await chromium.launch({ channel: 'chrome', headless, args: ['--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
+const page = await browser.newPage();
+page.on('console', m => console.error('[page]', m.text()));
+await page.goto('http://localhost:8765/caps.html');
+const out = await page.evaluate(() => window.run());
+console.log(JSON.stringify(out, null, 1));
+await browser.close(); srv.close();

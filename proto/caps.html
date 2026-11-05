@@ -1,0 +1,49 @@
+<!doctype html><meta charset="utf-8"><title>caps</title><video id="v" autoplay muted playsinline></video><canvas id="c" width="64" height="36"></canvas>
+<script>
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function measure(video, secs) {
+  // real (unique) frames per second and mean luma, via requestVideoFrameCallback + tiny readback
+  const ctx = document.getElementById('c').getContext('2d', { willReadFrequently: true });
+  let frames = 0, unique = 0, prev = null, lum = 0, presented0 = null, presentedN = 0;
+  const t0 = performance.now();
+  await new Promise(done => {
+    const cb = (now, meta) => {
+      if (presented0 === null) presented0 = meta.presentedFrames;
+      presentedN = meta.presentedFrames;
+      ctx.drawImage(video, 0, 0, 64, 36);
+      const d = ctx.getImageData(0, 0, 64, 36).data;
+      let s = 0, diff = 0;
+      for (let i = 0; i < d.length; i += 4) { const y = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; s += y; if (prev) diff += Math.abs(d[i] - prev[i]) + Math.abs(d[i + 1] - prev[i + 1]); }
+      frames++; if (!prev || diff > 0) unique++; prev = d.slice(); lum = s / (d.length / 4);
+      if (performance.now() - t0 < secs * 1000) video.requestVideoFrameCallback(cb); else done();
+    };
+    video.requestVideoFrameCallback(cb);
+  });
+  const dt = (performance.now() - t0) / 1000;
+  return { callbacks_fps: +(frames / dt).toFixed(1), unique_fps: +(unique / dt).toFixed(1), presented_fps: +((presentedN - presented0) / dt).toFixed(1), luma: +lum.toFixed(1) };
+}
+window.run = async () => {
+  const out = {};
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } });
+  const video = document.getElementById('v'); video.srcObject = stream; await video.play();
+  const track = stream.getVideoTracks()[0];
+  out.label = track.label; out.settings = track.getSettings(); out.capabilities = track.getCapabilities();
+  await sleep(4000);
+  out.auto = await measure(video, 4);
+  const tryApply = async (name, adv) => {
+    try { await track.applyConstraints({ advanced: [adv] }); await sleep(2500); const m = await measure(video, 3); const s = track.getSettings();
+      out[name] = { applied: adv, ...m, exposureMode: s.exposureMode, exposureTime: s.exposureTime, wb: s.whiteBalanceMode, ct: s.colorTemperature, brightness: s.brightness }; }
+    catch (e) { out[name] = { applied: adv, error: String(e) }; }
+  };
+  const cap = out.capabilities;
+  if (cap.exposureTime) {
+    const { min, max, step } = cap.exposureTime;
+    for (const t of [max, max / 2, max / 4, max / 8]) await tryApply('manual_exposure_' + t, { exposureMode: 'manual', exposureTime: t });
+    await tryApply('back_to_continuous', { exposureMode: 'continuous' });
+  }
+  if (cap.colorTemperature) { await tryApply('wb_manual_6500', { whiteBalanceMode: 'manual', colorTemperature: 6500 }); await tryApply('wb_back_auto', { whiteBalanceMode: 'continuous' }); }
+  if (cap.brightness) { await tryApply('brightness_0', { brightness: 0 }); await tryApply('brightness_restore', { brightness: out.settings.brightness }); }
+  stream.getTracks().forEach(t => t.stop());
+  return out;
+};
+</script>

@@ -1,0 +1,18 @@
+{
+  "name": "sunroom",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "eval": "node eval/run.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "playwright-core": "^1.50.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}

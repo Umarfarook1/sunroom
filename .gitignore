@@ -1,0 +1,7 @@
+data/
+tools/bin/
+node_modules/
+dist/
+*.log
+.audit/
+todo.md
