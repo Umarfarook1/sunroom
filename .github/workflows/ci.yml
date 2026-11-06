@@ -5,13 +5,22 @@ on:
   pull_request:
 jobs:
   check:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run build
+      # the engine and the extension in a real Chromium on this OS, on a synthetic dark clip
+      - run: npx playwright-core install --with-deps chromium
+      - run: node tools/make_synthetic_clip.mjs data/fake/synthetic.y4m
+      - run: node eval/smoke.mjs data/fake/synthetic.y4m

@@ -1,7 +1,7 @@
 // End-to-end test of the extension on Chromium's fake camera, fed real dark footage from data/fake.
 // Usage: node apps/extension/test/e2e.mjs [--browser <path to a Chromium-based browser>] [--offline]
 // --browser defaults to Playwright's own Chromium (npx playwright-core install chromium): branded Chrome 137+
-// ignores --load-extension. Microsoft Edge works too.
+// ignores --load-extension.
 // --offline skips the public WebRTC sample page. Everything runs headless.
 import { chromium } from 'playwright-core';
 import { execFileSync, spawn } from 'node:child_process';
@@ -11,18 +11,13 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { findChromium } from '../../../tools/chromium.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../../..');
 const dist = path.resolve(here, '../dist');
 const shots = path.join(here, 'shots');
-// any Chromium that Playwright has downloaded will do, newest first
-const cache = path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), '.cache'), 'ms-playwright');
-const cached = fs.existsSync(cache)
-  ? fs.readdirSync(cache).filter((d) => d.startsWith('chromium-')).sort().reverse().flatMap((d) => ['chrome-win64/chrome.exe', 'chrome-win/chrome.exe', 'chrome-linux/chrome'].map((f) => path.join(cache, d, f)))
-  : [];
-const exe = process.argv.includes('--browser') ? process.argv[process.argv.indexOf('--browser') + 1] : [chromium.executablePath(), ...cached].find((f) => fs.existsSync(f));
-if (!exe || !fs.existsSync(exe)) throw new Error('no Chromium found; run "npx playwright-core install chromium" or pass --browser <path>');
+const exe = findChromium();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // The fake camera plays Y4M copies of the recorded clips. Fed the .mjpeg files directly, Chromium's reader ends
 // the track within two seconds (each JPEG is followed by zero padding) and, in a visible window, Edge 156's

@@ -71,7 +71,7 @@ One camera, one room, one person. The harness is in `eval/` so you can score you
 Requires Node 20 or later and Chrome or another Chromium browser.
 
 ```sh
-git clone <this repository>
+git clone https://github.com/Umarfarook1/sunroom.git
 cd sunroom
 npm install
 npm run web

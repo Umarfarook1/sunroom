@@ -8,13 +8,10 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { findChromium } from '../tools/chromium.mjs';
 
 const dist = path.resolve('apps/extension/dist');
-const cache = path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), '.cache'), 'ms-playwright');
-const cached = fs.existsSync(cache)
-  ? fs.readdirSync(cache).filter((d) => d.startsWith('chromium-')).sort().reverse().flatMap((d) => ['chrome-win64/chrome.exe', 'chrome-win/chrome.exe', 'chrome-linux/chrome'].map((f) => path.join(cache, d, f)))
-  : [];
-const exe = process.argv.includes('--browser') ? process.argv[process.argv.indexOf('--browser') + 1] : [chromium.executablePath(), ...cached].find((f) => fs.existsSync(f));
+const exe = findChromium();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Windows only: what the camera driver itself says, independent of the browser
 const camera = () => {
