@@ -52,7 +52,7 @@ jobs:
           if (Test-Path $dir) { Get-ChildItem $dir -Recurse | ForEach-Object FullName; throw "$dir is still there" }
           if (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object DisplayName -like 'Sunroom*') { throw 'the Apps entry is still there' }
           if (Test-Path 'HKCU:\Software\Classes\CLSID\{5C2CD55C-92AD-4999-8666-912BD3E70010}') { throw 'uninstalling left Sunroom Camera registered' }
-          if (Test-Path "$env:LOCALAPPDATA\sunroomcam") { throw 'uninstalling left the filter files behind' }
+          if (Test-Path "$env:LOCALAPPDATA\sunroom\vcam") { throw 'uninstalling left the filter files behind' }
           "uninstalled: $dir, its Apps entry and the Sunroom Camera registration are gone"
       - uses: actions/upload-artifact@v4
         with:
