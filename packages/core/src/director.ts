@@ -215,6 +215,13 @@ export function direct(state: DirectorState, caps: CameraCaps, settings: CameraS
       const ceiling = clipping ? { gainCeiling: g, ceilingUntilMs: input.nowMs + state.ceilingMs, ceilingMs: Math.min(state.ceilingMs * 4, CEILING_MAX_MS) } : {};
       return sent({ ...state, ...ceiling, sinceMs: null }, { exposureCompensation: Math.max(gain.min, g - gain.step) }, clipping ? 'highlights are clipping; lowering sensor gain' : 'scene is bright; lowering sensor gain');
     }
+    // Minimum gain. Only highlights clip (a window behind a dark face): there is nothing left to give up.
+    if (input.shortfallStops >= -0.3) return idle({ ...state, sinceMs: null });
+    // A shorter shutter keeps the frame rate. The camera's own automatic exposure is what dropped it.
+    const t = settings.exposureTime;
+    if (caps.exposureTime && t !== undefined && t > caps.exposureTime.min + 1e-6) {
+      return sent({ ...state, sinceMs: null }, { exposureTime: Math.max(caps.exposureTime.min, t / 2) }, 'scene is bright; shortening the shutter');
+    }
     if (state.sinceMs === null) return idle({ ...state, sinceMs: input.nowMs });
     if (input.nowMs - state.sinceMs < BRIGHT_FOR_MS) return idle(state);
     return sent(
@@ -223,8 +230,16 @@ export function direct(state: DirectorState, caps: CameraCaps, settings: CameraS
       'plenty of light; handing exposure back to the camera',
     );
   }
+  const dark = input.shortfallStops > 1 && input.p98 < P98_HEADROOM;
+  // light from the shutter is free of noise, so take back any we gave up before adding gain
+  if (dark && caps.exposureTime && settings.exposureTime !== undefined) {
+    const pin = shutterFor(input.nominalFps, caps.exposureTime);
+    if (settings.exposureTime < pin - 1e-6) {
+      return sent({ ...state, sinceMs: null }, { exposureTime: Math.min(pin, settings.exposureTime * 2) }, 'scene is dark; lengthening the shutter');
+    }
+  }
   const ceiling = state.gainCeiling !== null && input.nowMs < state.ceilingUntilMs ? state.gainCeiling : Infinity;
-  if (input.shortfallStops > 1 && input.p98 < P98_HEADROOM && gain && g !== undefined && g < gain.max && g + gain.step < ceiling && state.gainWorks) {
+  if (dark && gain && g !== undefined && g < gain.max && g + gain.step < ceiling && state.gainWorks) {
     return sent(
       { ...state, sinceMs: null, gainProbe: { shortfallBefore: input.shortfallStops } },
       { exposureCompensation: Math.min(gain.max, g + gain.step) },

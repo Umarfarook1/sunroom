@@ -55,7 +55,10 @@ jobs:
             sudo modprobe videodev || true
             sudo insmod /tmp/v4l2loopback/v4l2loopback.ko video_nr=10 card_label="Sunroom Camera" exclusive_caps=1 || { sudo dmesg | tail -30; exit 1; }
           fi
+          # udev sets the new node's mode a moment after the module loads; wait for it, or it undoes the chmod
+          sudo udevadm settle
           sudo chmod 666 /dev/video10
+          sleep 2
           ls -l /dev/video10
           v4l2-ctl --device /dev/video10 --info | head -8
           ffmpeg -hide_banner -version | head -1

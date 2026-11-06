@@ -50,7 +50,10 @@ Its policy is minimal intervention.
   control: on some systems the same browser property means something else.
 - A hand-fixed white balance is switched back to automatic. A negative black level that clips
   shadows is raised toward the middle of its range.
-- When the scene gets bright, exposure is handed back to the camera.
+- When the scene gets bright, the director lowers gain, then shortens the shutter. That keeps the
+  frame rate, which the camera's own automatic exposure does not. Exposure goes back to the camera
+  only when the shortest shutter is still too bright. When it gets dark again, the shutter is
+  lengthened first, and gain added after.
 - On stop, or when the user turns the director off, gain, black level and a hand-fixed white
   balance are put back as found. Exposure always returns to automatic: a camera found in manual
   exposure may be Sunroom's own leftover from a tab that was killed, so that state is not kept.
