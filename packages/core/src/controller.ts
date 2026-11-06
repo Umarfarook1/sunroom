@@ -20,17 +20,21 @@ export interface Tuning {
   skinBG: readonly [number, number];
   /** Largest white-balance correction per axis, in log units. Beyond it the channel has no data left. */
   maxWbShift: number;
+  /** 0..1: extra shadow lift on the face, a soft fill light. */
+  faceFill: number;
 }
 
 export const DEFAULT_TUNING: Tuning = {
   faceBand: [0.15, 0.4],
-  sceneTarget: 0.15,
+  sceneTarget: 0.19,
   maxGainStops: 5.5,
   highlightCeiling: 0.8,
   settleSeconds: 0.6,
-  skinRG: [0.5, 1.2],
-  skinBG: [-1.15, -0.2],
-  maxWbShift: 0.7,
+  // measured: webcams render skin far less saturated than studio swatches (R/G 1.4 to 1.6 on the dev camera)
+  skinRG: [0.22, 1.2],
+  skinBG: [-1.2, -0.1],
+  maxWbShift: 1.1,
+  faceFill: 0.3,
 };
 
 /** Smoothed decisions carried between frames. */
@@ -77,8 +81,10 @@ function goals(s: FrameStats, t: Tuning): { state: ControlState; shortfallStops:
   let wbExcess = 0;
   if (s.face) {
     // smallest correction that brings skin back inside the plausible set; none if it already is
-    const needRG = clamp(s.face.rg, t.skinRG[0], t.skinRG[1]) - s.face.rg;
-    const needBG = clamp(s.face.bg, t.skinBG[0], t.skinBG[1]) - s.face.bg;
+    // skin outside the set is carried a little past the edge: the edge itself is still an odd colour
+    const into = (need: number) => need + Math.sign(need) * Math.min(Math.abs(need), 0.15);
+    const needRG = into(clamp(s.face.rg, t.skinRG[0], t.skinRG[1]) - s.face.rg);
+    const needBG = into(clamp(s.face.bg, t.skinBG[0], t.skinBG[1]) - s.face.bg);
     wbRG = clamp(needRG, -t.maxWbShift, t.maxWbShift);
     wbBG = clamp(needBG, -t.maxWbShift, t.maxWbShift);
     wbExcess = Math.hypot(needRG - wbRG, needBG - wbBG);
@@ -125,12 +131,13 @@ export function control(prev: ControlState | null, s: FrameStats, dt: number, t:
     cLo: mix(0.85, 1, smoothstep(1.5, 4, gainStops)), // lift shadows a little, unless they are all noise
     wb: [r / norm, 1 / norm, b / norm],
     detail: 1,
-    sharpen: mix(0.7, 0.15, Math.max(smoothstep(2, 5, gainStops), grain * 0.7)),
+    sharpen: mix(1.0, 0.15, Math.max(smoothstep(2, 5, gainStops), grain * 0.7)),
     chromaLod: clamp(0.5 + Math.max(0.5 * gainStops, 2 * grain), 0.5, 2.5),
     // a colour cast too strong to correct is shown as a calmer, greyer picture rather than a wrong one
     saturation: mix(1.05, 0.85, smoothstep(3, 6, gainStops)) * (1 - 0.85 * smoothstep(0, 0.8, state.wbExcess)),
     shadowDesat: grain,
     spatial: 1,
+    faceFill: t.faceFill,
     bypass: false,
   };
   return {

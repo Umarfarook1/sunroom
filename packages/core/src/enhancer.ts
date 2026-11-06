@@ -18,7 +18,7 @@ export interface FrameReport {
  * The canvas is resized to the frame.
  */
 export class Enhancer {
-  /** When false the frame is shown untouched (history keeps running so re-enabling is seamless). */
+  /** When false the camera frame is passed through untouched (history keeps running so re-enabling is seamless). */
   enabled = true;
   private readonly gl: WebGL2RenderingContext;
   private pipeline: Pipeline | null = null;
@@ -60,7 +60,8 @@ export class Enhancer {
     const decision = control(this.state, stats, dt, this.tuning);
     this.state = decision.state;
     this.analysis = decision.analysis;
-    this.pipeline.output({ ...decision.render, bypass: !this.enabled }, [width, height]);
+    const f = this.face;
+    this.pipeline.output({ ...decision.render, bypass: !this.enabled }, [width, height], f ? [f.x + f.w / 2, f.y + f.h / 2, f.w * 0.75, f.h * 0.8] : null);
     return { stats, decision };
   }
 

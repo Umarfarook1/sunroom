@@ -174,8 +174,11 @@ void main() {
  * lands on target and bright backgrounds fold down instead of clipping; fine detail rides on top.
  */
 export const TONE = HEAD + `
+uniform sampler2D u_in;
 uniform sampler2D u_den;
 uniform sampler2D u_ab;
+uniform vec4 u_face;      // centre xy and radii zw in image uv; radii 0 when no face is known
+uniform float u_faceFill; // 0..1 extra shadow lift on the face
 uniform vec3 u_wb;
 uniform float u_anchor;   // log2 scene luminance that should land on u_target
 uniform float u_target;   // log2 display-linear luminance
@@ -197,11 +200,11 @@ void main() {
   vec2 uv = vec2(v_uv.x, 1.0 - v_uv.y); // canvas rows run bottom-up, image rows top-down
   vec4 c4 = texture(u_den, uv);
   vec3 c = c4.rgb;
-  vec3 raw = c;
   float el = luma(enc(c));
-  // where little history has accumulated (something moved), smooth across space instead,
-  // only between pixels that differ by less than the noise that is still left
-  float left = mix(u_sigmaDark, u_sigmaBright, smoothstep(0.12, 0.55, el)) * inversesqrt(max(c4.a, 1.0));
+  // Noise still left after temporal accumulation. Camera firmware denoises across frames itself,
+  // so its noise is correlated in time and averaging stalls at roughly half: hence the floor.
+  float left = mix(u_sigmaDark, u_sigmaBright, smoothstep(0.12, 0.55, el)) * max(inversesqrt(max(c4.a, 1.0)), 0.45);
+  // smooth across space, only between pixels that differ by less than that remaining noise
   float k = 1.0 / (2.0 * 9.0 * left * left + 1e-9);
   vec3 acc = c;
   float wsum = 1.0;
@@ -213,14 +216,31 @@ void main() {
     acc += t * w; wsum += w;
   }
   c = acc / wsum;
+  // coarser levels join in where they agree with this pixel to within the noise: flat areas
+  // get cleaned at blotch scale, edges and real texture are left as they are
+  vec3 c1 = textureLod(u_den, uv, 1.0).rgb;
+  vec3 c2 = textureLod(u_den, uv, 2.0).rgb;
+  float e0 = luma(enc(c));
+  float kp = 1.0 / (2.0 * 4.0 * left * left + 1e-9);
+  float d1 = luma(enc(c1)) - e0;
+  float d2 = luma(enc(c2)) - e0;
+  float w1 = exp(-d1 * d1 * kp) * u_spatial;
+  float w2 = exp(-d2 * d2 * kp) * w1;
+  c = (c + c1 * w1 + c2 * w2) / (1.0 + w1 + w2);
   float L = luma(c) + 1e-5;
   float I = log2(L);
   vec2 ab = texture(u_ab, uv).rg;
   float base = ab.x * I + ab.y;
   float x = base - u_anchor;
-  float y = u_target + x * (x > 0.0 ? u_cHi : u_cLo);
+  // fill light: shadows on the face (eye sockets under a ceiling lamp) are lifted more than elsewhere
+  vec2 fd = (uv - u_face.xy) / max(u_face.zw, vec2(1e-4));
+  float onFace = u_face.z > 0.0 ? exp(-dot(fd, fd)) : 0.0;
+  float cLo = u_cLo * (1.0 - u_faceFill * onFace);
+  float y = u_target + x * (x > 0.0 ? u_cHi : cLo);
   float fine = I - log2(luma(textureLod(u_den, uv, 1.5).rgb) + 1e-5);
   fine *= 1.0 - smoothstep(0.25, 0.8, abs(fine)); // leave strong edges alone: no halos
+  float nlog = 2.885 * left / max(el, 0.03);      // the remaining noise, in log2 luminance
+  fine *= smoothstep(0.5 * nlog, 2.0 * nlog, abs(fine)); // and do not sharpen grain
   float Lout = exp2(y + (I - base) * u_detail + fine * u_sharpen);
 
   // colour from a slightly coarser level: chroma noise is the ugliest part of a lifted shadow
@@ -242,7 +262,7 @@ void main() {
   // triangular dither hides the 8-bit steps that a lifted shadow would otherwise show
   float n = hash(gl_FragCoord.xy + u_seed) + hash(gl_FragCoord.xy + u_seed + 17.0) - 1.0;
   outc += n / 255.0;
-  o = vec4(mix(outc, toSrgb(raw), u_bypass), 1.0);
+  o = vec4(mix(outc, texture(u_in, uv).rgb, u_bypass), 1.0);
 }`;
 
 /** Plain copy of the source frame (used for split-view and as a failure fallback). */

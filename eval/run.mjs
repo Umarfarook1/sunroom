@@ -1,5 +1,6 @@
 // Pushes every clip through the real WebGL pipeline in Chrome, saves the frames, then scores them.
-// Usage: node eval/run.mjs <variant> [--faces oracle|none] [--clips a,b] [--opts <json>] [--headed] [--off]
+// Usage: node eval/run.mjs <variant> [--faces oracle|none|detect] [--clips a,b] [--opts <json>] [--headed] [--off]
+// --faces oracle: annotated boxes; none: centre-weighted metering; detect: the shipped detector on the output
 import { chromium } from 'playwright-core';
 import { build } from 'esbuild';
 import http from 'node:http';
@@ -38,9 +39,15 @@ const server = http
       return;
     }
     if (url === '/') return res.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><meta charset="utf-8"><script src="/page.js"></script>');
-    const file = url === '/page.js' ? path.resolve('data/.cache/eval-page.js') : url.startsWith('/frames/') ? path.join(framesRoot, url.slice(8)) : null;
-    if (!file || !file.startsWith(path.resolve('data')) || !fs.existsSync(file)) return res.writeHead(404).end();
-    res.writeHead(200, { 'content-type': file.endsWith('.js') ? 'text/javascript' : 'image/jpeg' }).end(fs.readFileSync(file));
+    const file =
+      url === '/page.js' ? path.resolve('data/.cache/eval-page.js')
+      : url.startsWith('/frames/') ? path.join(framesRoot, url.slice(8))
+      : url.startsWith('/mp/') ? path.join(path.resolve('node_modules/@mediapipe/tasks-vision/wasm'), url.slice(4))
+      : url.startsWith('/models/') ? path.join(path.resolve('packages/core/assets'), url.slice(8))
+      : null;
+    if (!file || !fs.existsSync(file)) return res.writeHead(404).end();
+    const type = { '.js': 'text/javascript', '.wasm': 'application/wasm', '.jpg': 'image/jpeg' }[path.extname(file)] ?? 'application/octet-stream';
+    res.writeHead(200, { 'content-type': type }).end(fs.readFileSync(file));
   })
   .listen(0);
 const port = server.address().port;
@@ -61,9 +68,9 @@ for (const clip of clips) {
   const dir = path.join(framesRoot, clip);
   const count = fs.readdirSync(dir).filter((f) => f.endsWith('.jpg')).length;
   const faces = facesMode === 'oracle' ? JSON.parse(fs.readFileSync(path.join(dir, 'faces.json'), 'utf8')) : null;
-  const r = await page.evaluate((job) => window.runClip(job), { clip, count, variant, faces, options, enabled: !args.includes('--off') });
+  const r = await page.evaluate((job) => window.runClip(job), { clip, count, variant, faces, detect: facesMode === 'detect', options, enabled: !args.includes('--off') });
   summary[clip] = r;
-  console.log(`${clip.padEnd(22)} ${count} frames  ${r.msMedian.toFixed(1)} ms median  ${r.msP95.toFixed(1)} ms p95  [${r.renderer}]`);
+  console.log(`${clip.padEnd(22)} ${count} frames  ${r.msMedian.toFixed(1)} ms median  ${r.msP95.toFixed(1)} ms p95${r.detect ? `  face found ${r.detect}` : ''}  [${r.renderer}]`);
 }
 await browser.close();
 server.close();

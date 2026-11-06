@@ -7,7 +7,7 @@ import { type FaceTracker, FaceSmoother } from './face';
 import type { FaceBox } from './meter';
 
 export interface SessionOptions extends EnhancerOptions {
-  /** Supplies face positions for metering. Without one, metering is centre-weighted. */
+  /** Supplies face positions for metering. Without one, metering is centre-weighted. The caller owns and closes it. */
   faceTracker?: FaceTracker | null;
   /** Let Sunroom drive the camera's exposure, gain and white balance. Default true. */
   director?: boolean;
@@ -29,6 +29,8 @@ export interface SessionStatus {
   director: { mode: DirectorState['mode']; lastReason: string | null; lastCommand: Command | null };
   /** How frames are pumped: 'streams' survives background tabs, 'canvas' is the fallback. */
   transport: 'streams' | 'canvas';
+  /** Set when enhancing stopped because of a failure; the enhanced track has ended. */
+  error: string | null;
 }
 
 // Insertable Streams types are not in lib.dom yet.
@@ -106,9 +108,11 @@ export class CameraSession {
       frame: null,
       director: { mode: 'observe', lastReason: null, lastCommand: null },
       transport: useStreams ? 'streams' : 'canvas',
+      error: null,
     };
+    this.canvas.addEventListener('webglcontextlost', () => this.fail('the graphics context was lost'));
     this.track = useStreams ? this.pumpStreams() : this.pumpCanvas();
-    camera.addEventListener('ended', () => this.stop());
+    camera.addEventListener('ended', () => void this.stop());
   }
 
   get enabled(): boolean {
@@ -121,27 +125,46 @@ export class CameraSession {
   get director(): boolean {
     return this.directorOn;
   }
+  /** Turning the director off hands the camera's controls back as they were found. */
   set director(on: boolean) {
+    if (this.directorOn && !on) {
+      void this.restoreCamera();
+      this.directorState = initialDirectorState();
+      this.status.director = { mode: 'observe', lastReason: null, lastCommand: null };
+    }
     this.directorOn = on;
   }
 
-  /** Stops enhancing and releases the GPU. The camera track itself is left to its owner. */
-  stop(): void {
+  /**
+   * Stops enhancing, releases the GPU and puts the camera's controls back.
+   * The camera track itself is left to its owner; await this before stopping that track.
+   */
+  async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
-    if (this.touched.size && (this.opts.restoreCameraOnStop ?? true) && this.camera.readyState === 'live') {
-      const o = this.original;
-      const back: Command = {};
-      if (this.touched.has('exposureMode') && o.exposureMode) back.exposureMode = o.exposureMode as Command['exposureMode'];
-      if (this.touched.has('exposureTime') && o.exposureMode === 'manual') back.exposureTime = o.exposureTime;
-      if (this.touched.has('exposureCompensation')) back.exposureCompensation = o.gain;
-      if (this.touched.has('brightness')) back.brightness = o.brightness;
-      this.camera.applyConstraints({ advanced: [back as MediaTrackConstraintSet] }).catch(() => {});
-    }
     this.track.stop();
     this.video?.remove();
-    this.opts.faceTracker?.close();
     this.enhancer.dispose();
+    if (this.opts.restoreCameraOnStop ?? true) await this.restoreCamera();
+  }
+
+  private async restoreCamera(): Promise<void> {
+    if (!this.touched.size || this.camera.readyState !== 'live') return;
+    const o = this.original;
+    const back: Command = {};
+    if (this.touched.has('exposureMode') && o.exposureMode) back.exposureMode = o.exposureMode as Command['exposureMode'];
+    if (this.touched.has('exposureTime') && o.exposureMode === 'manual') back.exposureTime = o.exposureTime;
+    if (this.touched.has('exposureCompensation')) back.exposureCompensation = o.gain;
+    if (this.touched.has('brightness')) back.brightness = o.brightness;
+    this.touched.clear();
+    await this.camera.applyConstraints({ advanced: [back as MediaTrackConstraintSet] }).catch(() => {});
+  }
+
+  private fail(why: string): void {
+    if (this.stopped) return;
+    this.status.error = why;
+    console.error('[sunroom] enhancing stopped:', why);
+    void this.stop();
   }
 
   private pumpStreams(): MediaStreamTrack {
@@ -162,7 +185,7 @@ export class CameraSession {
           out.close();
         }
       } catch (err) {
-        if (!this.stopped) console.error('[sunroom] frame pump stopped', err);
+        this.fail(err instanceof Error ? err.message : String(err));
       } finally {
         reader.releaseLock();
         writer.close().catch(() => {});

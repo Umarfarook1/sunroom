@@ -98,7 +98,7 @@ const P98_CLIPPING = 0.95;
 
 /** Longest shutter the camera supports that still fits one frame period. */
 export function shutterFor(fps: number, r: Range): number {
-  const limit = (10000 / fps) * 1.02;
+  const limit = 10000 / fps;
   // UVC on Windows exposes power-of-two shutters as min * 2^k; other stacks expose a linear step
   const log2Steps = Math.log2(r.max / r.min);
   if (Math.abs(log2Steps - Math.round(log2Steps)) < 0.01 && Math.abs(r.step - r.min) < 1e-6) {

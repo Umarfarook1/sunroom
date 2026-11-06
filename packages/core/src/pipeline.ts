@@ -16,6 +16,8 @@ export interface RenderParams {
   shadowDesat: number;
   /** 0..1: spatial smoothing where temporal history is thin (moving areas). */
   spatial: number;
+  /** 0..1: extra shadow lift inside the face region. */
+  faceFill: number;
   bypass: boolean;
 }
 
@@ -135,15 +137,21 @@ export class Pipeline {
     return this.meterBuf;
   }
 
-  /** Tone-maps the denoised frame from the last analyse() onto the canvas. */
-  output(p: RenderParams, canvasSize: readonly [number, number]): void {
+  /**
+   * Tone-maps the denoised frame from the last analyse() onto the canvas.
+   * @param face centre x, centre y, radius x, radius y in image uv, or null
+   */
+  output(p: RenderParams, canvasSize: readonly [number, number], face: readonly [number, number, number, number] | null): void {
     draw(
       this.gl,
       this.prog.TONE!,
       null,
       {
+        u_in: { tex: this.inTex },
         u_den: { tex: this.hist[0].tex },
         u_ab: { tex: this.guide[1].tex },
+        u_face: face ?? [0, 0, 0, 0],
+        u_faceFill: p.faceFill,
         u_wb: p.wb,
         u_anchor: p.anchor,
         u_target: p.target,

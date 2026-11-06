@@ -55,7 +55,7 @@ export function measure(px: Uint8Array, w: number, h: number, face: FaceBox | nu
   let logSum = 0;
   let wSum = 0;
   for (let y = 0; y < h; y++) {
-    const dy = (y + 0.5) / h - 0.5;
+    const dy = (y + 0.5) / h - 0.42; // a seated person's face sits a little above the middle
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       const r = px[i * 4]! / 255;
@@ -75,7 +75,7 @@ export function measure(px: Uint8Array, w: number, h: number, face: FaceBox | nu
         nBright++;
       }
       const dx = (x + 0.5) / w - 0.5;
-      const wt = Math.exp(-(dx * dx + dy * dy) / (2 * 0.3 * 0.3));
+      const wt = Math.exp(-(dx * dx + dy * dy) / (2 * 0.2 * 0.2));
       logSum += wt * Math.log2(L + 1e-4);
       wSum += wt;
     }
