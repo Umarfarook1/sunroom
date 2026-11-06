@@ -1,0 +1,54 @@
+name: windows-installer
+on:
+  push:
+    branches: [main, windows-installer]
+  workflow_dispatch:
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run dist -w apps/desktop
+      - name: The installer asks for no admin rights
+        run: |
+          $setup = (Get-Item 'apps/desktop/release/Sunroom Setup *.exe').FullName
+          "$setup, $((Get-Item $setup).Length) bytes"
+          if (-not (Select-String -LiteralPath $setup -Pattern 'level="asInvoker"' -SimpleMatch -Quiet)) { throw 'the installer manifest asks for more than the current user' }
+          "SETUP=$setup" >> $env:GITHUB_ENV
+      - name: Install silently
+        run: |
+          Start-Process -FilePath $env:SETUP -ArgumentList '/S' -Wait
+          $entry = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object DisplayName -like 'Sunroom*'
+          if (-not $entry) { throw 'no Sunroom entry in the per-user Apps list' }
+          $entry | Format-List DisplayName, DisplayVersion, Publisher, QuietUninstallString
+          if ($entry.QuietUninstallString -notmatch '^"([^"]+)"\s*(.*)$') { throw "cannot read the uninstall command: $($entry.QuietUninstallString)" }
+          $exe = Join-Path (Split-Path $Matches[1]) 'Sunroom.exe'
+          if (-not (Test-Path $exe)) { throw "$exe is missing" }
+          "installed: $exe"
+          Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs", ([Environment]::GetFolderPath('Desktop')) -Filter 'Sunroom*.lnk' -ErrorAction SilentlyContinue | ForEach-Object { "shortcut: $($_.FullName)" }
+          "SUNROOM_EXE=$exe" >> $env:GITHUB_ENV
+          "UNINSTALLER=$($Matches[1])" >> $env:GITHUB_ENV
+          "UNINSTALL_ARGS=$($Matches[2])" >> $env:GITHUB_ENV
+      - run: node tools/make_synthetic_clip.mjs data/fake/synthetic.y4m 30 1280 720
+      - name: Launch the installed app on the fake camera and check it enhances
+        run: node apps/desktop/test/installed.mjs "$env:SUNROOM_EXE" data/fake/synthetic.y4m
+      - name: Uninstall silently
+        run: |
+          Start-Process -FilePath $env:UNINSTALLER -ArgumentList $env:UNINSTALL_ARGS -Wait
+          $dir = Split-Path $env:SUNROOM_EXE
+          # the NSIS uninstaller reruns itself from a temp copy, so the first process can exit before the files are gone
+          for ($i = 0; (Test-Path $dir) -and $i -lt 60; $i++) { Start-Sleep 1 }
+          if (Test-Path $dir) { Get-ChildItem $dir -Recurse | ForEach-Object FullName; throw "$dir is still there" }
+          if (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object DisplayName -like 'Sunroom*') { throw 'the Apps entry is still there' }
+          "uninstalled: $dir and its Apps entry are gone"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sunroom-setup-windows-x64
+          path: apps/desktop/release/Sunroom Setup *.exe
+          if-no-files-found: error
