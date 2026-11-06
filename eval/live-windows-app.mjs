@@ -86,6 +86,21 @@ try {
 
   const restedAgain = await until((s) => s.camera === null && s.view === 'resting', 20_000);
   check('the reader left: the webcam is let go again', restedAgain && webcamFree());
+  // a second app, while another program holds the webcam: Sunroom must keep trying and recover by itself
+  const holder = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'dshow', '-i', `video=${webcam}`, '-t', '12', '-f', 'null', '-'], { stdio: 'ignore' });
+  const released = new Promise((r) => holder.on('close', r));
+  await sleep(3000);
+  const second = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'dshow', '-video_size', '1280x720', '-framerate', '30', '-i', 'video=Sunroom Camera', '-frames:v', '900', '-f', 'null', '-'], { stdio: 'ignore' });
+  await sleep(5000);
+  const blocked = await look();
+  check('while another program holds the webcam, Sunroom says so and waits', blocked.camera === null && blocked.view === 'problem', JSON.stringify(blocked));
+  await released;
+  const t1 = Date.now();
+  const recovered = await until((s) => s.vcam === 'sending' && s.fps > 10, 30_000);
+  check('once the webcam is free, Sunroom takes it and sends without being asked', recovered, `${((Date.now() - t1) / 1000).toFixed(1)} s after the other program let go`);
+  second.kill();
+  check('the second reader left: the webcam is let go again', await until((s) => s.camera === null && s.view === 'resting', 20_000));
+
   await setWindow('show');
   check('opening the window turns the webcam on', await until((s) => s.fps > 10 && s.view === 'live', 20_000));
 } finally {

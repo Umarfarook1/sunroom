@@ -24,6 +24,8 @@ export interface Tuning {
   faceFill: number;
   /** Seconds over which what was learned from a face fades once the face is out of view. */
   faceMemorySeconds: number;
+  /** Seconds a face must be in view before it is fully remembered. A false detection lasts a second or two. */
+  faceConfirmSeconds: number;
 }
 
 export const DEFAULT_TUNING: Tuning = {
@@ -38,6 +40,7 @@ export const DEFAULT_TUNING: Tuning = {
   maxWbShift: 1.1,
   faceFill: 0.3,
   faceMemorySeconds: 60,
+  faceConfirmSeconds: 10,
 };
 
 /** Smoothed decisions carried between frames. */
@@ -55,7 +58,7 @@ export interface ControlState {
   faceSeen: boolean;
   /** Stops between the face and the scene average, as last measured; null until a face has been measured. */
   faceOffset: number | null;
-  /** 1 while a face is in view; fades to 0 once it is not, and metering goes back to the whole scene with it. */
+  /** How much a remembered face counts once it is out of view, 0..1: grows while it is in view, fades after. */
   faceTrust: number;
 }
 
@@ -79,12 +82,14 @@ function goals(s: FrameStats, t: Tuning, memory: Pick<ControlState, 'faceOffset'
   // A face out of view for a moment (looking down, a hand in front) is metered where it was against the
   // scene. Metering the whole scene instead moves the picture by stops each time the detector loses it.
   const faceOffset = s.face ? Math.log2(s.face.median + 1e-5) - s.logAvg : (memory?.faceOffset ?? null);
-  const faceTrust = s.face ? 1 : faceOffset === null ? 0 : memory!.faceTrust;
+  const faceTrust = memory?.faceTrust ?? 0;
+  // a face in view is metered as it is; one out of view counts as much as it was trusted
+  const weight = s.face ? 1 : faceOffset === null ? 0 : faceTrust;
   const faceLog = s.logAvg + (faceOffset ?? 0);
-  const anchor = mix(s.logAvg, faceLog, faceTrust);
+  const anchor = mix(s.logAvg, faceLog, weight);
   // a face already in a healthy range keeps its brightness: skin tones differ, and all are right
   const faceWanted = Math.log2(clamp(s.face ? s.face.median : 2 ** faceLog, t.faceBand[0], t.faceBand[1]));
-  const wanted = mix(Math.log2(t.sceneTarget), faceWanted, faceTrust);
+  const wanted = mix(Math.log2(t.sceneTarget), faceWanted, weight);
   const target = Math.min(wanted, anchor + t.maxGainStops);
 
   const xHi = Math.log2(s.p98 + 1e-5) - anchor;
@@ -122,7 +127,7 @@ export function control(prev: ControlState | null, s: FrameStats, dt: number, t:
     // the detector finds the face about a second into a call; easing colour in from there is seconds of wrong skin
     // without a face in view the colour found from skin and the face's place against the scene fade slowly
     const kMemory = 1 - Math.exp(-dt / t.faceMemorySeconds);
-    const kColour = !g.faceSeen ? kMemory : !prev.faceSeen ? 1 : kSlow;
+    const kColour = !g.faceSeen ? mix(kSlow, kMemory, prev.faceTrust) : !prev.faceSeen ? 1 : kSlow;
     const ease = (from: number, to: number, rate: number, dead = 0) => (Math.abs(to - from) < dead ? from : from + (to - from) * rate);
     state = {
       anchor: ease(prev.anchor, g.anchor, k, 0.03),
@@ -135,7 +140,7 @@ export function control(prev: ControlState | null, s: FrameStats, dt: number, t:
       sigmaBright: ease(prev.sigmaBright, g.sigmaBright, kSlow),
       faceSeen: prev.faceSeen || g.faceSeen,
       faceOffset: g.faceSeen && g.faceOffset !== null && prev.faceOffset !== null ? ease(prev.faceOffset, g.faceOffset, kSlow) : g.faceOffset,
-      faceTrust: g.faceSeen ? 1 : g.faceTrust * (1 - kMemory),
+      faceTrust: g.faceSeen ? Math.min(1, prev.faceTrust + dt / t.faceConfirmSeconds) : prev.faceTrust * (1 - kMemory),
     };
   }
 

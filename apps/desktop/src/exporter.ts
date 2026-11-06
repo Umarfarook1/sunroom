@@ -28,10 +28,7 @@ Object.assign(badge.style, {
 const text = document.createElement('span');
 const setup = Object.assign(document.createElement('button'), { textContent: 'Set up Sunroom Camera', hidden: true });
 Object.assign(setup.style, { marginLeft: '8px', font: 'inherit', padding: '2px 8px', cursor: 'pointer' });
-setup.addEventListener('click', () => {
-  setup.disabled = true; // until the main process answers with a new state
-  worker.postMessage({ type: 'setup' });
-});
+setup.addEventListener('click', () => worker.postMessage({ type: 'setup' }));
 badge.append(text, setup);
 document.body.append(badge);
 
@@ -50,7 +47,6 @@ worker.onmessage = ({ data }: MessageEvent<FromWorker>) => {
   text.textContent = data.text;
   badge.dataset.state = data.state;
   setup.hidden = !data.setup;
-  setup.disabled = false;
   // the page owns the camera; this tells it when nothing shows or reads the picture
   window.dispatchEvent(new CustomEvent('sunroom:camera', { detail: data.camera }));
   sending = data.pump;

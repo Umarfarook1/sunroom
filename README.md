@@ -113,8 +113,8 @@ The sources are in `research/01-landscape.md`.
 | Price and licence | Free, MIT | Free, closed | Comes with the PC, closed | Free, GPL | Free, closed | Free to paid |
 | Needs | A browser with WebGL2 | An RTX 2060 or better | A Windows 11 PC with an NPU | OBS, the plugin, and CPU to spare | Nothing | Nothing |
 | Runs on | Windows, macOS and Linux in the browser; the virtual camera on Windows | Windows | Windows 11 | Windows, macOS, Linux | Inside that app only | Browser calls only |
-| Automatic in low light | Yes | Partly, once switched on | Partly, toggles | A filter you add | Yes in Zoom and Meet | No, sliders |
-| Sets the camera's own exposure and gain | Yes, in Chromium browsers | No | No | No | No | No |
+| Automatic in low light | Yes | Partly, once switched on | Partly, toggles | A filter you add | Yes in Zoom and Meet | Mostly sliders |
+| Sets the camera's own exposure and gain | Yes, where the browser allows it (tried in Chrome on Windows) | No | No | No | Teams has an automatic camera option; Zoom and Meet do not | No |
 | Meters exposure on the face | Yes | No | No | No | Not documented | No |
 | Cleans up noise | Yes | Yes | No | Not documented | A Zoom option | No |
 
@@ -167,7 +167,7 @@ Apps then list it as "Sunroom Camera". See
 The desktop app has an installer for 64-bit Windows. It installs for your user only and does not
 ask for admin rights.
 
-1. Download `Sunroom Setup 0.1.0.exe` from the
+1. Download `Sunroom.Setup.0.1.0.exe` from the
    [Releases page](https://github.com/Umarfarook1/sunroom/releases). GitHub builds and tests it
    on a Windows machine for every change. To build it yourself instead, run `npm ci` and then
    `npm run dist -w apps/desktop` in a clone; the installer is then in `apps/desktop/release`.
@@ -197,7 +197,7 @@ Developed and measured on one laptop: Windows 10, Intel UHD graphics, a 720p Son
 | Camera control | Works on the one webcam tried | Live runs in Chrome on Windows 10: frame rate held at 30 fps, sensor gain raised in the dark, gain put back and exposure returned to automatic on stop |
 | Web app | Works | 16 end-to-end checks on Chrome's fake camera, plus live runs on the real webcam |
 | Browser extension | Works in tests | 14 end-to-end checks in Chromium, including a page with a strict content security policy, a cross-origin iframe, a background tab and a machine without WebGL2. On the real webcam it steered the camera and put the settings back, both on stop and when the tab was closed. On real pages (fake camera, nothing sent out): a WebRTC peer-connection call where the far end shows the enhanced picture, the Jitsi Meet pre-join screen, and webcamtests.com. Not yet tried on Google Meet, Zoom or Teams, which need a login |
-| Desktop app on Windows | Works with the real virtual camera | Set up from the app's own button on a Windows 10 laptop, without admin rights (`eval/live-windows-app.mjs`, 11 checks: setup, the webcam released while idle, woken by an app in about 2 seconds). Then the whole chain on real hardware: webcam, Sunroom, "Sunroom Camera", read by ffmpeg through DirectShow and by Chrome through `getUserMedia` at 1280x720 and 29 fps. The real filter returns a test picture pixel for pixel, upright and in order. Not yet tried inside Zoom or Teams themselves |
+| Desktop app on Windows | Works with the real virtual camera | Set up from the app's own button on a Windows 10 laptop, without admin rights (`eval/live-windows-app.mjs`, 14 checks: setup, the webcam released while idle, Sunroom sending again 2 to 3 seconds after an app opened the camera, and recovery by itself after another program held the webcam). Then the whole chain on real hardware: webcam, Sunroom, "Sunroom Camera", read by ffmpeg through DirectShow and by Chrome through `getUserMedia` at 1280x720 and 29 fps. The real filter returns a test picture pixel for pixel, upright and in order. Not yet tried inside Zoom or Teams themselves |
 | Windows installer | Works on GitHub's Windows machine | Every push to `main` builds the installer, installs it silently for the current user, starts the installed app on a synthetic 1280x720 clip and checks that it shows the web UI and enhances without errors, clicks the setup button and checks that Sunroom Camera is registered, then uninstalls it silently and checks that the folder, the Apps entry and the camera registration are gone. That machine is Windows build 26100 and has no GPU, so the app runs there at about 3 fps. The installer has not been run on Windows 10 or on a PC with a webcam; the unpacked app passes the same check on the Windows 10 laptop |
 | Desktop app on Linux | Parked, not working yet | A virtual camera through v4l2loopback and ffmpeg is written and its pipe is tested. It has not passed a test on a real Linux device. Windows is being finished first |
 | Desktop app on macOS | Not built | The researched route is in `apps/desktop/PLATFORMS.md` |
@@ -282,8 +282,9 @@ Layout:
   nothing uses it.
 - No browser exposes the camera's anti-flicker setting, so flicker is removed in software.
   Bands that stand perfectly still cannot be told apart from the scene.
-- White balance is corrected from skin colour. With no face in view it is left as the camera
-  set it, and objects behind you can keep a tint after your skin is corrected.
+- White balance is corrected from skin colour. Before a face has been seen it is left as the
+  camera set it. Once your face goes out of view the correction fades slowly, over a few minutes.
+  Objects behind you can keep a tint after your skin is corrected.
 - Tested on one camera, one room and one person so far. Reports from other cameras, skin tones
   and lighting are the most useful contribution right now.
 

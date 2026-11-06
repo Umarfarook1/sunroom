@@ -47,9 +47,12 @@ let camera: MediaStreamTrack | null = null;
 let session: CameraSession | null = null;
 let generation = 0;
 let droppedTo: number | null = null;
+let shown: View = { kind: 'waiting' };
+let starting = 0;
 window.__sunroom = { session: null };
 
 function show(view: View): void {
+  shown = view;
   document.body.dataset.view = view.kind;
   if (view.kind === 'waiting') {
     ui.messageTitle.textContent = 'Waiting for your camera';
@@ -86,10 +89,20 @@ function gpuProblem(): string | null {
   return ok ? null : NO_FLOAT_TARGETS;
 }
 
-async function start(): Promise<void> {
+async function start(quiet = false): Promise<void> {
+  starting++;
+  try {
+    await begin(quiet);
+  } finally {
+    starting--;
+  }
+}
+
+/** @param quiet keep the message on screen while trying: used for retries nobody asked for */
+async function begin(quiet: boolean): Promise<void> {
   const gen = ++generation;
   await release();
-  show({ kind: 'waiting' });
+  if (!quiet) show({ kind: 'waiting' });
   if (!navigator.mediaDevices?.getUserMedia) return show({ kind: 'problem', problem: 'insecure' });
   const saved = localStorage.getItem(CAMERA_KEY);
   let stream: MediaStream;
@@ -100,6 +113,7 @@ async function start(): Promise<void> {
     if (isSunroomCamera(stream.getVideoTracks()[0]!.label)) {
       // the browser chose the virtual camera the desktop app feeds; take a real one instead
       stream.getTracks().forEach((t) => t.stop());
+      localStorage.removeItem(CAMERA_KEY);
       const real = (await navigator.mediaDevices.enumerateDevices()).find((d) => d.kind === 'videoinput' && !isSunroomCamera(d.label));
       if (!real) throw new DOMException('only the Sunroom virtual camera is connected', 'NotFoundError');
       stream = await open({ exact: real.deviceId });
@@ -223,12 +237,17 @@ ui.original.addEventListener('resize', setRatio);
 navigator.mediaDevices?.addEventListener('devicechange', () => camera && void listCameras(camera));
 addEventListener('pagehide', () => session?.stop());
 // Desktop app only: it asks for the camera to be off while its window is hidden and no app reads Sunroom Camera.
+// The wish is repeated every few seconds, so a camera another program held while Sunroom rested is tried again.
 let resting = false;
 addEventListener('sunroom:camera', (e) => {
-  const wanted = (e as CustomEvent<boolean>).detail;
-  if (wanted === !resting) return;
-  resting = !wanted;
-  if (wanted) return void start();
+  if ((e as CustomEvent<boolean>).detail) {
+    resting = false;
+    const busy = shown.kind === 'problem' && shown.problem === 'busy';
+    if (!camera && !starting && (shown.kind === 'resting' || busy)) void start(busy);
+    return;
+  }
+  if (resting) return;
+  resting = true;
   generation++; // a start still in flight must not open the camera after this
   void release().then(() => resting && show({ kind: 'resting' }));
 });

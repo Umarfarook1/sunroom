@@ -1,6 +1,8 @@
 <#
 .SYNOPSIS
-  Registers "Sunroom Camera" for the current Windows user, or removes it. Sunroom never runs this; you do.
+  Registers "Sunroom Camera" for the current Windows user, or removes it. The Sunroom app runs it when you click
+  "Set up Sunroom Camera" or the tray's "Remove Sunroom Camera from this PC", and its uninstaller runs it to
+  remove the camera. You can also run it yourself.
 
 .DESCRIPTION
   Sunroom Camera is the UnityCapture DirectShow filter (MIT, https://github.com/schellingb/UnityCapture),

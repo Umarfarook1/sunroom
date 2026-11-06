@@ -27,7 +27,7 @@ using the camera.
 
 Sunroom closes the real camera 5 seconds after its window is hidden or minimised and no app is
 reading "Sunroom Camera", and opens it again when the window comes back or an app starts reading.
-On the test laptop an app that opened the camera got Sunroom's picture after 2 to 3 seconds.
+On the test laptop Sunroom was sending again 2 to 3 seconds after an app opened the camera. Until then the app shows the filter's placeholder picture. If another program holds the webcam at that moment, Sunroom keeps trying every few seconds.
 
 DirectShow cameras are invisible to the Windows Camera app, which lists Media Foundation cameras only. A Windows 11 Media Foundation camera (`MFCreateVirtualCamera`) needs an admin registration and a media source that we have no prebuilt binary for.
 

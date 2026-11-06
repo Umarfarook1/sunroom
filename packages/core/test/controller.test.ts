@@ -137,7 +137,7 @@ describe('control: a face that goes out of view', () => {
     for (let i = 0; i < seconds * 30; i++) d = control(d.state, s, 1 / 30);
     return d;
   };
-  const settled = () => run(control(null, seen), seen, 5);
+  const settled = () => run(control(null, seen), seen, 15);
 
   it('keeps the brightening and the camera request it had when the face is lost for a few seconds', () => {
     const before = settled();
@@ -159,6 +159,15 @@ describe('control: a face that goes out of view', () => {
     const before = settled();
     const after = run(before, stats({ logAvg: room - 1 }), 3);
     expect(after.shortfallStops - before.shortfallStops).toBeGreaterThan(0.8);
+  });
+
+  it('lets a face seen for a second or two count for little: a false detection must not steer the picture', () => {
+    const scene = control(null, lost);
+    const sceneLift = scene.render.target - scene.render.anchor;
+    const after = run(run(control(null, seen), seen, 1.5), lost, 5);
+    expect(after.render.target - after.render.anchor - sceneLift).toBeLessThan(0.5);
+    expect(after.shortfallStops).toBeLessThan(1.2);
+    expect(Math.abs(after.state.wbRG)).toBeLessThan(0.1);
   });
 
   it('goes back to metering the whole scene after minutes without a face', () => {

@@ -78,6 +78,13 @@ export interface DirectorState {
   ceilingUntilMs: number;
   /** How long the next ceiling lasts. Grows each time gain clips, so a still scene is retried ever more rarely. */
   ceilingMs: number;
+  /** When exposure was last handed back to the camera. */
+  handedBackMs: number;
+  /** The camera answered a hand-back by dropping its frame rate, so a bright scene is met with a shorter shutter instead. */
+  autoDropsFps: boolean;
+  /** The shutter the camera reported when we last asked it for another; null when no request is waiting for proof. */
+  shutterFrom: number | null;
+  shutterWorks: boolean;
   whiteBalanceChecked: boolean;
   exposureChecked: boolean;
 }
@@ -100,6 +107,10 @@ export const initialDirectorState = (): DirectorState => ({
   gainCeiling: null,
   ceilingUntilMs: 0,
   ceilingMs: CEILING_MS,
+  handedBackMs: -1e9,
+  autoDropsFps: false,
+  shutterFrom: null,
+  shutterWorks: true,
   whiteBalanceChecked: false,
   exposureChecked: false,
 });
@@ -111,6 +122,7 @@ const HOLD_OFF_MS = 8000;
 const STARVED_HOLD_OFF_MS = 60000;
 const CEILING_MS = 30000;
 const CEILING_MAX_MS = 30 * 60000;
+const DROP_AFTER_HAND_BACK_MS = 30000;
 const P98_HEADROOM = 0.8; // only add gain while highlights have room
 const P98_CLIPPING = 0.95;
 const STARVED_STOPS = 2.5; // past this much software brightening, sensor gain gives the cleaner picture
@@ -186,7 +198,7 @@ export function direct(state: DirectorState, caps: CameraCaps, settings: CameraS
     if (state.sinceMs === null) return idle({ ...state, sinceMs: input.nowMs });
     if (input.nowMs - state.sinceMs < SLOW_FOR_MS) return idle(state);
     return sent(
-      { ...state, mode: 'manual', sinceMs: null, gainProbe: null },
+      { ...state, mode: 'manual', sinceMs: null, gainProbe: null, shutterFrom: null, autoDropsFps: state.autoDropsFps || (slow && input.nowMs - state.handedBackMs < DROP_AFTER_HAND_BACK_MS) },
       { exposureMode: 'manual', exposureTime: pin },
       slow
         ? `camera fell to ${input.fps.toFixed(0)} fps; pinning the shutter to hold ${input.nominalFps} fps`
@@ -205,6 +217,11 @@ export function direct(state: DirectorState, caps: CameraCaps, settings: CameraS
     const helped = state.gainProbe.shortfallBefore - input.shortfallStops > 0.08;
     state = { ...state, gainProbe: null, gainWorks: helped };
   }
+  if (state.shutterFrom !== null) {
+    // a camera that did not move its shutter when asked will not move it next time either
+    const moved = settings.exposureTime !== undefined && Math.abs(settings.exposureTime - state.shutterFrom) > 1e-6;
+    state = { ...state, shutterFrom: null, shutterWorks: moved };
+  }
   const gain = caps.gain;
   const g = settings.gain;
   const clipping = input.p98 > P98_CLIPPING;
@@ -217,31 +234,33 @@ export function direct(state: DirectorState, caps: CameraCaps, settings: CameraS
     }
     // Minimum gain. Only highlights clip (a window behind a dark face): there is nothing left to give up.
     if (input.shortfallStops >= -0.3) return idle({ ...state, sinceMs: null });
-    // A shorter shutter keeps the frame rate. The camera's own automatic exposure is what dropped it.
+    // The camera's own exposure suits a bright room best: it also avoids flicker from the lamps. Only a camera
+    // that answered the last hand-back by dropping its frame rate stays with us, on a shorter shutter.
     const t = settings.exposureTime;
-    if (caps.exposureTime && t !== undefined && t > caps.exposureTime.min + 1e-6) {
-      return sent({ ...state, sinceMs: null }, { exposureTime: Math.max(caps.exposureTime.min, t / 2) }, 'scene is bright; shortening the shutter');
+    if (state.autoDropsFps && state.shutterWorks && caps.exposureTime && t !== undefined && t > caps.exposureTime.min + 1e-6) {
+      return sent({ ...state, sinceMs: null, shutterFrom: t }, { exposureTime: Math.max(caps.exposureTime.min, t / 2) }, 'scene is bright; shortening the shutter');
     }
     if (state.sinceMs === null) return idle({ ...state, sinceMs: input.nowMs });
     if (input.nowMs - state.sinceMs < BRIGHT_FOR_MS) return idle(state);
     return sent(
-      { ...state, mode: 'observe', sinceMs: null, holdOffUntilMs: input.nowMs + HOLD_OFF_MS, starvedHoldOffUntilMs: input.nowMs + STARVED_HOLD_OFF_MS },
+      { ...state, mode: 'observe', sinceMs: null, handedBackMs: input.nowMs, holdOffUntilMs: input.nowMs + HOLD_OFF_MS, starvedHoldOffUntilMs: input.nowMs + STARVED_HOLD_OFF_MS },
       { exposureMode: 'continuous' },
       'plenty of light; handing exposure back to the camera',
     );
   }
   const dark = input.shortfallStops > 1 && input.p98 < P98_HEADROOM;
   // light from the shutter is free of noise, so take back any we gave up before adding gain
-  if (dark && caps.exposureTime && settings.exposureTime !== undefined) {
+  if (dark && state.shutterWorks && caps.exposureTime && settings.exposureTime !== undefined) {
     const pin = shutterFor(input.nominalFps, caps.exposureTime);
     if (settings.exposureTime < pin - 1e-6) {
-      return sent({ ...state, sinceMs: null }, { exposureTime: Math.min(pin, settings.exposureTime * 2) }, 'scene is dark; lengthening the shutter');
+      return sent({ ...state, sinceMs: null, shutterFrom: settings.exposureTime }, { exposureTime: Math.min(pin, settings.exposureTime * 2) }, 'scene is dark; lengthening the shutter');
     }
   }
   const ceiling = state.gainCeiling !== null && input.nowMs < state.ceilingUntilMs ? state.gainCeiling : Infinity;
   if (dark && gain && g !== undefined && g < gain.max && g + gain.step < ceiling && state.gainWorks) {
-    // far from enough light and far from clipping: two steps at once, so a dark start is over sooner
-    const steps = input.shortfallStops > 3 && input.p98 < 0.4 && ceiling === Infinity ? 2 : 1;
+    // far from enough light and with highlights under a quarter: two steps at once, so a dark start is over sooner.
+    // Two steps can triple the signal on a camera whose gain is a plain multiplier, and that must not clip.
+    const steps = input.shortfallStops > 3 && input.p98 < 0.25 && ceiling === Infinity ? 2 : 1;
     return sent(
       { ...state, sinceMs: null, gainProbe: { shortfallBefore: input.shortfallStops } },
       { exposureCompensation: Math.min(gain.max, g + steps * gain.step) },

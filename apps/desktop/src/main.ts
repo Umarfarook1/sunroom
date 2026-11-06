@@ -54,6 +54,7 @@ const RELEASE_AFTER_MS = 5000;
 let cameraOn = true;
 let letGo: NodeJS.Timeout | null = null;
 let setupNote: string | null = null;
+let setupRunning = false;
 
 /** Tells the page what the virtual camera is doing and whether anything needs the real camera right now. */
 function tell(): void {
@@ -72,7 +73,7 @@ function tell(): void {
     }, RELEASE_AFTER_MS);
   }
   const text = setupNote ?? STATE_TEXT[state];
-  port?.postMessage({ type: 'state', state, text, pump: wantsFrames(state), camera: cameraOn, setup: process.platform === 'win32' && state === 'not-installed' });
+  port?.postMessage({ type: 'state', state, text, pump: wantsFrames(state), camera: cameraOn, setup: process.platform === 'win32' && state === 'not-installed' && !setupRunning });
   tray?.setToolTip(`Sunroom: ${text}`.slice(0, 127)); // Windows cuts tray tooltips at 127 characters
 }
 
@@ -84,8 +85,14 @@ const onState = () => {
 /** Adds or removes "Sunroom Camera" for this Windows user. The backend's own poll notices the change. */
 function registerCamera(flag: '-Install' | '-Uninstall'): void {
   const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', registerScript, flag, '-Yes', ...(flag === '-Install' ? ['-SourceDir', filterDir] : [])];
+  if (setupRunning) return;
+  setupRunning = true;
+  setupNote = flag === '-Install' ? 'Setting up "Sunroom Camera"...' : 'Removing "Sunroom Camera"...';
+  tell();
   execFile('powershell.exe', args, { windowsHide: true }, (err, stdout, stderr) => {
-    if (!err) return;
+    setupRunning = false;
+    setupNote = null;
+    if (!err) return tell();
     console.error('[sunroom] camera setup failed:', stdout, stderr);
     const why = [...stderr.split(/\r?\n/), ...stdout.split(/\r?\n/)].map((l) => l.trim()).filter(Boolean).slice(0, 3).join(' ') || err.message;
     setupNote = `Could not ${flag === '-Install' ? 'set up' : 'remove'} "Sunroom Camera": ${why}`;
@@ -208,4 +215,6 @@ void app.whenReady().then(() => {
   ]));
   tray.on('click', toggle);
   tell();
+  // repeated, so a page whose camera failed to open (another program held it) tries again while it is wanted
+  setInterval(tell, 3000);
 });

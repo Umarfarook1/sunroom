@@ -43,6 +43,20 @@ jobs:
           $key = 'HKCU:\Software\Classes\CLSID\{5C2CD55C-92AD-4999-8666-912BD3E70010}'
           Get-ItemProperty "$key\InprocServer32" | Format-List '(default)', ThreadingModel
           if ((Get-ItemProperty $key).'(default)' -ne 'Sunroom Camera') { throw 'Sunroom Camera is not registered' }
+          # the class and the camera-list entry, for 64-bit and for 32-bit apps
+          $all = @(
+            $key,
+            'HKCU:\Software\Classes\CLSID\{860BB310-5D01-11d0-BD3B-00A0C911CE86}\Instance\{5C2CD55C-92AD-4999-8666-912BD3E70010}',
+            'HKCU:\Software\Classes\WOW6432Node\CLSID\{5C2CD55C-92AD-4999-8666-912BD3E70020}',
+            'HKCU:\Software\Classes\WOW6432Node\CLSID\{860BB310-5D01-11d0-BD3B-00A0C911CE86}\Instance\{5C2CD55C-92AD-4999-8666-912BD3E70020}'
+          )
+          # the app reports ready at the first key; the script writes the rest within a moment
+          for ($i = 0; ($all | Where-Object { -not (Test-Path -LiteralPath $_) }) -and $i -lt 20; $i++) { Start-Sleep -Milliseconds 500 }
+          $missing = $all | Where-Object { -not (Test-Path -LiteralPath $_) }
+          if ($missing) { throw "setup left these keys unwritten: $($missing -join ', ')" }
+          foreach ($dll in (Get-ItemProperty "$key\InprocServer32").'(default)', (Get-ItemProperty "$($all[2])\InprocServer32").'(default)') { if (-not (Test-Path -LiteralPath $dll)) { throw "registered file is missing: $dll" } }
+          "all 4 registry entries are present and point at existing files"
+          ($all -join "`n") | Set-Content camera-keys.txt
       - name: Uninstall silently
         run: |
           Start-Process -FilePath $env:UNINSTALLER -ArgumentList $env:UNINSTALL_ARGS -Wait
@@ -51,7 +65,8 @@ jobs:
           for ($i = 0; (Test-Path $dir) -and $i -lt 60; $i++) { Start-Sleep 1 }
           if (Test-Path $dir) { Get-ChildItem $dir -Recurse | ForEach-Object FullName; throw "$dir is still there" }
           if (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object DisplayName -like 'Sunroom*') { throw 'the Apps entry is still there' }
-          if (Test-Path 'HKCU:\Software\Classes\CLSID\{5C2CD55C-92AD-4999-8666-912BD3E70010}') { throw 'uninstalling left Sunroom Camera registered' }
+          $left = Get-Content camera-keys.txt | Where-Object { Test-Path -LiteralPath $_ }
+          if ($left) { throw "uninstalling left Sunroom Camera registered: $($left -join ', ')" }
           if (Test-Path "$env:LOCALAPPDATA\sunroom\vcam") { throw 'uninstalling left the filter files behind' }
           "uninstalled: $dir, its Apps entry and the Sunroom Camera registration are gone"
       - uses: actions/upload-artifact@v4

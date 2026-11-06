@@ -6,5 +6,5 @@ export { createMediaPipeFaceTracker, FaceSmoother, type FaceTracker, type MediaP
 export { measure, type FaceBox, type FaceStats, type FrameStats } from './meter';
 export type { AnalysisParams, RenderParams } from './pipeline';
 
-/** True for the virtual camera the desktop app feeds. Enhancing it would feed Sunroom its own output. */
-export const isSunroomCamera = (label: string): boolean => label.includes('Sunroom Camera');
+/** True for the virtual camera the desktop app feeds, under either name its filter registers with. Enhancing it would feed Sunroom its own output. */
+export const isSunroomCamera = (label: string): boolean => label.includes('Sunroom Camera') || label.includes('Unity Video Capture');

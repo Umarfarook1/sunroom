@@ -13,7 +13,6 @@ const caps: CameraCaps = {
 const auto: CameraSettings = { exposureMode: 'continuous', exposureTime: 625, gain: 1, whiteBalanceMode: 'continuous', brightness: 0 };
 const manual: CameraSettings = { ...auto, exposureMode: 'manual', exposureTime: 312.5 };
 const input = (over: Partial<DirectorInput>): DirectorInput => ({ nowMs: 0, fps: 30, nominalFps: 30, busy: 0.3, shortfallStops: 0, p98: 0.5, p02: 0.01, ...over });
-const shortest: CameraSettings = { ...manual, exposureTime: 9.765625 };
 const inManual = (over: Partial<DirectorState> = {}): DirectorState => ({ ...initialDirectorState(), mode: 'manual', whiteBalanceChecked: true, exposureChecked: true, ...over });
 
 describe('shutterFor', () => {
@@ -116,10 +115,9 @@ describe('direct', () => {
   it('takes two gain steps at once while the face is very dark and highlights are far from clipping', () => {
     let d = direct(inManual(), caps, manual, input({ nowMs: 5000, shortfallStops: 5.8, p98: 0.15 }));
     expect(d.command).toEqual({ exposureCompensation: 3 });
+    // highlights are past a quarter now: one step at a time
     d = direct(d.state, caps, { ...manual, gain: 3 }, input({ nowMs: 7000, shortfallStops: 4.1, p98: 0.33 }));
-    expect(d.command).toEqual({ exposureCompensation: 5 });
-    d = direct(d.state, caps, { ...manual, gain: 5 }, input({ nowMs: 9000, shortfallStops: 2.9, p98: 0.55 }));
-    expect(d.command).toEqual({ exposureCompensation: 6 });
+    expect(d.command).toEqual({ exposureCompensation: 4 });
     // never past the camera's maximum
     d = direct(inManual(), caps, { ...manual, gain: 7 }, input({ nowMs: 5000, shortfallStops: 4, p98: 0.2 }));
     expect(d.command).toEqual({ exposureCompensation: 8 });
@@ -159,8 +157,8 @@ describe('direct', () => {
   });
 
   it('does not take over for a dark face again within a minute of handing back', () => {
-    let d = direct(inManual(), caps, shortest, input({ nowMs: 5000, shortfallStops: -1 }));
-    d = direct(d.state, caps, shortest, input({ nowMs: 8100, shortfallStops: -1 }));
+    let d = direct(inManual(), caps, manual, input({ nowMs: 5000, shortfallStops: -1 }));
+    d = direct(d.state, caps, manual, input({ nowMs: 8100, shortfallStops: -1 }));
     expect(d.command).toEqual({ exposureMode: 'continuous' });
     const at32 = { ...auto, exposureTime: 312.5 };
     const dark = { shortfallStops: 5, p98: 0.4 };
@@ -180,12 +178,35 @@ describe('direct', () => {
     expect(d.state.gainWorks).toBe(false);
   });
 
-  it('shortens the shutter, not the frame rate, when the scene is bright at minimum gain', () => {
+  it('shortens the shutter instead of handing back again, once a hand-back has cost the frame rate', () => {
     let d = direct(inManual(), caps, manual, input({ nowMs: 5000, shortfallStops: -1 }));
+    d = direct(d.state, caps, manual, input({ nowMs: 8100, shortfallStops: -1 }));
+    expect(d.command).toEqual({ exposureMode: 'continuous' });
+    // the camera's own exposure drops to 15 fps: taken over again after the hold-off
+    d = direct(d.state, caps, auto, input({ nowMs: 17000, fps: 15 }));
+    d = direct(d.state, caps, auto, input({ nowMs: 19000, fps: 15 }));
+    expect(d.command).toEqual({ exposureMode: 'manual', exposureTime: 312.5 });
+    d = direct(d.state, caps, manual, input({ nowMs: 21000, shortfallStops: -1 }));
     expect(d.command).toEqual({ exposureTime: 156.25 });
     expect(d.state.mode).toBe('manual');
-    d = direct(d.state, caps, { ...manual, exposureTime: 156.25 }, input({ nowMs: 7000, shortfallStops: 0 }));
+    d = direct(d.state, caps, { ...manual, exposureTime: 156.25 }, input({ nowMs: 23000, shortfallStops: 0 }));
     expect(d.command).toBeNull();
+  });
+
+  it('stops asking for a shutter the camera does not give', () => {
+    // bright side: the request changes nothing, so the next step is the hand-back
+    let d = direct(inManual({ autoDropsFps: true }), caps, manual, input({ nowMs: 5000, shortfallStops: -1 }));
+    expect(d.command).toEqual({ exposureTime: 156.25 });
+    d = direct(d.state, caps, manual, input({ nowMs: 7000, shortfallStops: -1 }));
+    expect(d.command).toBeNull();
+    d = direct(d.state, caps, manual, input({ nowMs: 10100, shortfallStops: -1 }));
+    expect(d.command).toEqual({ exposureMode: 'continuous' });
+    // dark side: a camera that reports a shutter just under the longest still gets gain
+    const under = { ...manual, exposureTime: 300 };
+    d = direct(inManual(), caps, under, input({ nowMs: 5000, shortfallStops: 2.4, p98: 0.4 }));
+    expect(d.command).toEqual({ exposureTime: 312.5 });
+    d = direct(d.state, caps, under, input({ nowMs: 7000, shortfallStops: 2.4, p98: 0.4 }));
+    expect(d.command).toEqual({ exposureCompensation: 2 });
   });
 
   it('takes the shutter back to the longest that holds the frame rate before it adds gain', () => {
@@ -204,10 +225,10 @@ describe('direct', () => {
     expect(d.state.mode).toBe('manual');
   });
 
-  it('hands exposure back when the scene stays bright at minimum gain and the shortest shutter, then holds off', () => {
-    let d = direct(inManual(), caps, shortest, input({ nowMs: 5000, shortfallStops: -1 }));
+  it('hands exposure back when the scene stays bright at minimum gain, then holds off', () => {
+    let d = direct(inManual(), caps, manual, input({ nowMs: 5000, shortfallStops: -1 }));
     expect(d.command).toBeNull();
-    d = direct(d.state, caps, shortest, input({ nowMs: 8100, shortfallStops: -1 }));
+    d = direct(d.state, caps, manual, input({ nowMs: 8100, shortfallStops: -1 }));
     expect(d.command).toEqual({ exposureMode: 'continuous' });
     expect(d.state.mode).toBe('observe');
     // the frame rate drops again straight away: no takeover during the hold-off

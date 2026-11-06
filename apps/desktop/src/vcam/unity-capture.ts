@@ -111,6 +111,7 @@ export class UnityCaptureOutput implements VirtualCameraOutput {
   private view: unknown = null;
   private maxSize = 0;
   private lastWantMs = -Infinity;
+  private sentAny = false;
   private packed: Uint8Array | undefined;
 
   constructor(onState: (state: VirtualCameraState) => void = () => {}) {
@@ -132,24 +133,36 @@ export class UnityCaptureOutput implements VirtualCameraOutput {
       k.ReleaseMutex(this.mutex);
     }
     k.SetEvent(this.sent);
+    this.sentAny = true;
     this.noteWant();
   }
 
   close(): void {
     clearInterval(this.timer);
+    this.disconnect();
+  }
+
+  private disconnect(): void {
     const k = api();
     if (this.view) k.UnmapViewOfFile(this.view);
     for (const h of [this.mapping, this.sent, this.want, this.mutex]) if (h) k.CloseHandle(h);
     this.view = this.mapping = this.sent = this.want = this.mutex = null;
+    this.sentAny = false;
   }
 
   private tick(): void {
-    if (this.view) this.noteWant();
-    // a new mapping has width 0, so the filter asks for nothing until our first frame: count the connect itself as a request
-    else if (this.open()) this.lastWantMs = performance.now() + CONNECT_MS - LIVE_MS;
-    const next: VirtualCameraState = !this.view
-      ? filterRegistered() ? 'waiting' : 'not-installed'
-      : performance.now() - this.lastWantMs < LIVE_MS ? 'sending' : 'waiting';
+    const now = performance.now();
+    if (this.view) {
+      this.noteWant();
+      // Until our first frame the filter asks for nothing. A connect that got no frame within its grace (the webcam
+      // was busy, or slow to start) would leave us connected and deaf. Let go, so the next tick connects again.
+      if (!this.sentAny && now - this.lastWantMs >= LIVE_MS) this.disconnect();
+    } else if (this.open()) {
+      // a new mapping has width 0: count the connect itself as a request
+      this.lastWantMs = now + CONNECT_MS - LIVE_MS;
+    }
+    // looked up every time, so removing the camera shows at once, also after an app has connected
+    const next: VirtualCameraState = !filterRegistered() ? 'not-installed' : this.view && now - this.lastWantMs < LIVE_MS ? 'sending' : 'waiting';
     if (next === this.state) return;
     this.state = next;
     this.onState(next);

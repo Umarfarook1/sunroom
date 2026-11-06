@@ -50,10 +50,11 @@ Its policy is minimal intervention.
   control: on some systems the same browser property means something else.
 - A hand-fixed white balance is switched back to automatic. A negative black level that clips
   shadows is raised toward the middle of its range.
-- When the scene gets bright, the director lowers gain, then shortens the shutter. That keeps the
-  frame rate, which the camera's own automatic exposure does not. Exposure goes back to the camera
-  only when the shortest shutter is still too bright. When it gets dark again, the shutter is
-  lengthened first, and gain added after.
+- When the scene gets bright, the director lowers gain, then hands exposure back to the camera,
+  whose own automatic mode also avoids flicker from the lamps. On the test webcam one such
+  hand-back was followed by the camera dropping to 15 fps for about 9 seconds. If that happens,
+  the director takes over again and from then on meets a bright scene with a shorter shutter
+  instead of another hand-back. A shutter request the camera ignores is not repeated.
 - On stop, or when the user turns the director off, gain, black level and a hand-fixed white
   balance are put back as found. Exposure always returns to automatic: a camera found in manual
   exposure may be Sunroom's own leftover from a tab that was killed, so that state is not kept.
@@ -97,8 +98,9 @@ square-root encoding, where camera noise is close to uniform across brightness.
    - Brightening is capped at 5 stops. Past that the result is noise.
    - When the face goes out of view (looking down, a hand in front), Sunroom keeps metering
      where the face was against the room, and keeps the colour it found from the skin. This
-     memory fades over about a minute. Without it the picture jumps by stops each time the
-     detector loses the face.
+     memory fades slowly: about a third of it is left after one minute. A face counts fully
+     only after about 10 seconds in view, so a brief false detection steers little. Without the
+     memory the picture jumps by stops each time the detector loses the face.
    - Highlights that would clip after the lift are compressed instead.
    - White balance is corrected only when skin falls outside a wide plausible range, and then by
      the smallest amount that brings it back. A cast too strong to correct is shown as a calmer,
