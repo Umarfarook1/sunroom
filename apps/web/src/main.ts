@@ -1,4 +1,4 @@
-import { CameraSession, createMediaPipeFaceTracker, type FaceTracker, type SessionStatus } from '../../../packages/core/src/index';
+import { CameraSession, createMediaPipeFaceTracker, type FaceTracker, isSunroomCamera, type SessionStatus } from '../../../packages/core/src/index';
 import { NO_FLOAT_TARGETS, NO_WEBGL2, PROBLEMS, type Problem, problemFrom, statusLine } from './words';
 
 declare global {
@@ -89,10 +89,17 @@ async function start(): Promise<void> {
   if (!navigator.mediaDevices?.getUserMedia) return show({ kind: 'problem', problem: 'insecure' });
   const saved = localStorage.getItem(CAMERA_KEY);
   let stream: MediaStream;
+  const open = (deviceId?: ConstrainDOMString) =>
+    navigator.mediaDevices.getUserMedia({ video: { deviceId, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } });
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { deviceId: saved ? { ideal: saved } : undefined, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
-    });
+    stream = await open(saved ? { ideal: saved } : undefined);
+    if (isSunroomCamera(stream.getVideoTracks()[0]!.label)) {
+      // the browser chose the virtual camera the desktop app feeds; take a real one instead
+      stream.getTracks().forEach((t) => t.stop());
+      const real = (await navigator.mediaDevices.enumerateDevices()).find((d) => d.kind === 'videoinput' && !isSunroomCamera(d.label));
+      if (!real) throw new DOMException('only the Sunroom virtual camera is connected', 'NotFoundError');
+      stream = await open({ exact: real.deviceId });
+    }
   } catch (err) {
     console.warn('[sunroom] camera did not open', err);
     if (gen === generation) show({ kind: 'problem', problem: problemFrom(err) });
@@ -128,7 +135,7 @@ async function start(): Promise<void> {
 }
 
 async function listCameras(current: MediaStreamTrack): Promise<void> {
-  const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+  const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput' && !isSunroomCamera(d.label));
   const id = current.getSettings().deviceId;
   ui.camera.replaceChildren(...cams.map((d, i) => new Option(d.label || `Camera ${i + 1}`, d.deviceId, false, d.deviceId === id)));
   ui.picker.hidden = cams.length < 2;

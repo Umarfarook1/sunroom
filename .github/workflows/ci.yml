@@ -24,3 +24,44 @@ jobs:
       - run: npx playwright-core install --with-deps chromium
       - run: node tools/make_synthetic_clip.mjs data/fake/synthetic.y4m
       - run: node eval/smoke.mjs data/fake/synthetic.y4m
+
+  # the Linux virtual camera for real: a v4l2loopback device, the desktop app feeding it, ffmpeg and Chromium reading it
+  linux-camera:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Install ffmpeg and the loopback camera module
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg xvfb v4l-utils
+          sudo apt-get install -y linux-headers-$(uname -r) || true
+          sudo apt-get install -y linux-modules-extra-$(uname -r) || true
+          sudo apt-get install -y v4l2loopback-dkms || true
+      - name: Load Sunroom Camera
+        run: |
+          opts='video_nr=10 card_label="Sunroom Camera" exclusive_caps=1'
+          if ! sudo modprobe v4l2loopback $opts; then
+            echo "packaged module did not load; building v4l2loopback from source"
+            uname -r; dkms status || true
+            git clone --depth 1 https://github.com/v4l2loopback/v4l2loopback /tmp/v4l2loopback
+            git -C /tmp/v4l2loopback log -1 --format='v4l2loopback %H %cs'
+            make -C /tmp/v4l2loopback
+            sudo modprobe videodev || true
+            sudo insmod /tmp/v4l2loopback/v4l2loopback.ko video_nr=10 card_label="Sunroom Camera" exclusive_caps=1 || { sudo dmesg | tail -30; exit 1; }
+          fi
+          sudo chmod 666 /dev/video10
+          ls -l /dev/video10
+          v4l2-ctl --device /dev/video10 --info | head -8
+          ffmpeg -hide_banner -version | head -1
+      - name: Backend into the device, read back pixel by pixel
+        run: npx vitest run apps/desktop/test/v4l2-pipe.test.mjs apps/desktop/test/v4l2-device.test.mjs
+      - run: npx playwright-core install --with-deps chromium
+      - run: node tools/make_synthetic_clip.mjs data/fake/synthetic.y4m 30 1280 720
+      - name: Desktop app into the device, ffmpeg and Chromium read it
+        run: xvfb-run -a node eval/live-vcam.mjs data/fake/synthetic.y4m

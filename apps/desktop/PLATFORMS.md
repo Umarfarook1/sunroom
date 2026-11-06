@@ -1,11 +1,11 @@
 # Virtual camera by platform
 
-The desktop app feeds a system camera that native apps (Zoom, Teams, Discord, OBS) can pick. Each platform needs its own backend behind `VirtualCameraOutput` in `src/vcam/output.ts`: a `state`, `send(frame)` and `close()`. `src/main.ts` picks the backend in one line.
+The desktop app feeds a system camera that native apps (Zoom, Teams, Discord, OBS) can pick. Each platform needs its own backend behind `VirtualCameraOutput` in `src/vcam/output.ts`: a `state`, `send(frame)` and `close()`. `src/main.ts` picks the backend in one statement.
 
 | Platform | Status |
 |---|---|
 | Windows 10 and 11 | Sender implemented and tested against a simulated filter. Not yet tested with the real filter inside a real app. |
-| Linux | Not implemented. |
+| Linux | Sender implemented. Its ffmpeg pipe is tested on Windows with a file in place of the device. The device test is written but has not run on Linux yet. |
 | macOS | Not implemented. |
 
 Research behind every row: `research/02-platform-plumbing.md`, sections 1 to 5.
@@ -32,17 +32,34 @@ DirectShow cameras are invisible to the Windows Camera app, which lists Media Fo
 
 Checks:
 
-- `npm test -w apps/desktop` runs the frame packing test and the sender against `test/receiver-sim.mjs`, a stand-in for the filter in a separate process.
+- `npm test -w apps/desktop` runs the frame packing test and the sender against `test/receiver-sim.mjs`, a stand-in for the filter in a separate process. It also runs the Linux pipe test below.
 - `npm run e2e -w apps/desktop` runs the app on Chromium's fake camera with the simulated filter attached.
 
-## Linux (not implemented)
+## Linux
 
-Researched path: v4l2loopback plus ffmpeg.
+Sunroom Camera is a v4l2loopback device fed by ffmpeg. `src/vcam/v4l2-ffmpeg.ts` runs `ffmpeg -f rawvideo -pix_fmt rgba -s WxH -r 30 -i - -f v4l2 -pix_fmt yuv420p /dev/video10` and writes each RGBA frame to its stdin.
 
-1. Root, once: `sudo modprobe v4l2loopback video_nr=10 card_label="Sunroom Camera" exclusive_caps=1`. Distros package the module as `v4l2loopback-dkms`. Secure Boot can block the unsigned module.
-2. No root after that: spawn `ffmpeg -f rawvideo -pix_fmt rgba -s 1280x720 -r 30 -i - -f v4l2 -pix_fmt yuv420p /dev/video10` and write each RGBA frame to its stdin. The user needs write access to `/dev/video10`, normally through the `video` group.
+Set it up once:
 
-A Linux `VirtualCameraOutput` would own that ffmpeg process. It would report `not-installed` while `/dev/video10` is missing, and `sending` while ffmpeg accepts frames. v4l2loopback does not tell the sender whether an app is reading, so this backend would send all the time, unlike the Windows one, which sends only while an app asks for frames.
+1. Install ffmpeg and the module. Debian and Ubuntu package the module as `v4l2loopback-dkms`. Secure Boot can block the unsigned module.
+2. As root: `sudo modprobe v4l2loopback video_nr=10 card_label="Sunroom Camera" exclusive_caps=1`.
+3. Give your user write access to `/dev/video10`, normally through the `video` group.
+
+To use another device node, set `SUNROOM_V4L2_DEVICE`.
+
+How the backend behaves:
+
+- It reports `not-installed` while the device node is missing or not writable, or ffmpeg is not on PATH.
+- It reports `sending` once ffmpeg takes frames. v4l2loopback does not tell the sender whether an app is reading, so Sunroom feeds the camera all the time. The Windows backend sends only while an app asks for frames.
+- A new frame size restarts ffmpeg. A frame that arrives while ffmpeg is still taking the previous one is dropped, not queued.
+- If ffmpeg exits on its own, the backend logs it and starts it again on a later frame. It waits 1 s, then 2, 4 and 8, and at most 10 s.
+
+Checks:
+
+- `test/v4l2-pipe.test.mjs` runs the backend with ffmpeg writing a raw RGBA file instead of the device, on any OS with ffmpeg on PATH. It checks the frame count, size and every pixel, the restart on a new size, the dropped frame, and the back-off. It passes on Windows 10.
+- `test/v4l2-device.test.mjs` sends frames into the real device while a second ffmpeg reads them back, and compares them within what yuv420p allows. It runs only on Linux with the device loaded. It has not run yet.
+
+Not tested at all: an app such as Zoom, Chrome or OBS reading the device.
 
 PipeWire can host a camera node without a kernel module or root. Firefox and Chrome with "PipeWire camera support" turned on in `chrome://flags` can read it. Native apps such as Zoom read V4L2 only, so PipeWire does not replace v4l2loopback for them.
 

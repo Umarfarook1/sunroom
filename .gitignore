@@ -6,3 +6,4 @@ dist/
 .audit/
 todo.md
 apps/*/test/shots/
+__pycache__/

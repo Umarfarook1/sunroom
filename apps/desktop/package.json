@@ -7,7 +7,7 @@
   "scripts": {
     "build": "node build.mjs",
     "start": "node build.mjs && electron .",
-    "test": "node test/pack.test.mjs && node test/sender.test.mjs",
+    "test": "node test/pack.test.mjs && node test/sender.test.mjs && node test/v4l2-pipe.test.mjs",
     "e2e": "node build.mjs && node test/e2e.mjs"
   },
   "dependencies": { "koffi": "^2.9.0" },

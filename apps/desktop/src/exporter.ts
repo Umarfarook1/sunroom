@@ -1,10 +1,10 @@
 // Injected by the main process into whichever page the window shows (the web UI or the built-in page).
-// While an app reads the virtual camera, it hands each enhanced frame from window.__sunroom.session.track to a
+// While the virtual camera wants frames, it hands each enhanced frame from window.__sunroom.session.track to a
 // worker that converts and posts it to the main process; otherwise it reads nothing. It also shows the camera state.
 
 declare const MediaStreamTrackProcessor: new (init: { track: MediaStreamTrack; maxBufferSize?: number }) => { readable: ReadableStream<VideoFrame> };
 
-type FromWorker = { type: 'state'; state: string; text: string } | { type: 'took'; stats: object };
+type FromWorker = { type: 'state'; state: string; text: string; pump: boolean } | { type: 'took'; stats: object };
 
 const MAX_QUEUED = 2; // frames waiting in the worker; each one holds a camera buffer
 /** The worker's running totals, plus frames this page dropped because the worker was behind. */
@@ -39,7 +39,7 @@ worker.onmessage = ({ data }: MessageEvent<FromWorker>) => {
   }
   badge.textContent = data.text;
   badge.dataset.state = data.state;
-  sending = data.state === 'sending';
+  sending = data.pump;
   if (sending) void pump();
   else worker.postMessage({ type: 'stop' });
 };

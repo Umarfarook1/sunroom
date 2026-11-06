@@ -2,7 +2,7 @@
 // RGBA and posts it there, all off the page's main thread so the enhancer keeps its frame rate.
 
 type FromPage = { type: 'port'; port: MessagePort } | { type: 'frame'; frame: VideoFrame } | { type: 'stop' };
-type FromMain = { type: 'state'; state: string; text: string } | { type: 'ack'; mainMs: number; transitMs: number };
+type FromMain = { type: 'state'; state: string; text: string; pump: boolean } | { type: 'ack'; mainMs: number; transitMs: number };
 
 const MAX_IN_FLIGHT = 2;
 /** Running totals: readMs per frame read, postMs per frame posted, mainMs and transitMs per ack. */

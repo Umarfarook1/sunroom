@@ -1,6 +1,6 @@
 // MAIN world: when a page asks for the camera, it gets Sunroom's enhanced video instead.
 // Rule one: if anything here fails, the page gets the camera exactly as the browser gave it.
-import { CameraSession, createMediaPipeFaceTracker, type FaceTracker } from '../../../packages/core/src/index';
+import { CameraSession, createMediaPipeFaceTracker, type FaceTracker, isSunroomCamera } from '../../../packages/core/src/index';
 import { statusLine } from '../../web/src/words';
 import { type CameraReport, channel, HELLO, type PageSettings, READY } from './shared';
 
@@ -199,6 +199,8 @@ MediaDevices.prototype.getUserMedia = async function getUserMedia(this: MediaDev
   if (!camera || 'displaySurface' in camera.getSettings()) return stream;
   // Sunroom's own web app enhances for itself; doing it twice would also put two directors on one camera
   if (document.querySelector('meta[name="sunroom"][content="app"]')) return stream;
+  // the desktop app's virtual camera is enhanced already
+  if (isSunroomCamera(camera.label)) return stream;
   try {
     return await enhance(stream, camera, constraints);
   } catch (err) {

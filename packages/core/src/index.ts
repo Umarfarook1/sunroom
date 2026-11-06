@@ -5,3 +5,6 @@ export { direct, initialDirectorState, shutterFor, type CameraCaps, type CameraS
 export { createMediaPipeFaceTracker, FaceSmoother, type FaceTracker, type MediaPipeAssets } from './face';
 export { measure, type FaceBox, type FaceStats, type FrameStats } from './meter';
 export type { AnalysisParams, RenderParams } from './pipeline';
+
+/** True for the virtual camera the desktop app feeds. Enhancing it would feed Sunroom its own output. */
+export const isSunroomCamera = (label: string): boolean => label.includes('Sunroom Camera');

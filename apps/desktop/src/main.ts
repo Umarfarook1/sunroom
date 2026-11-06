@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { BrowserWindow, Menu, MessageChannelMain, type MessagePortMain, type NativeImage, Tray, app, nativeImage, net, protocol, session } from 'electron';
 import type { VirtualCameraOutput, VirtualCameraState } from './vcam/output';
 import { UnityCaptureOutput } from './vcam/unity-capture';
+import { V4l2FfmpegOutput } from './vcam/v4l2-ffmpeg';
 
 const fakeCamera = process.env.SUNROOM_FAKE_CAMERA;
 if (fakeCamera) {
@@ -26,6 +27,12 @@ const STATE_TEXT: Record<VirtualCameraState, string> = {
   waiting: 'Virtual camera ready. Waiting for an app to open "Sunroom Camera".',
   sending: 'Sending to an app that opened "Sunroom Camera".',
   unsupported: 'No virtual camera on this OS yet. See apps/desktop/PLATFORMS.md.',
+  // v4l2loopback never tells the sender whether an app is reading, so Linux can only say whether frames flow
+  ...(process.platform === 'linux' && {
+    'not-installed': 'Virtual camera not set up. Install ffmpeg, then run once: sudo modprobe v4l2loopback video_nr=10 card_label="Sunroom Camera" exclusive_caps=1. Your user needs write access to /dev/video10 (usually the video group).',
+    waiting: 'Virtual camera ready. Starting ffmpeg for "Sunroom Camera".',
+    sending: 'Sending to "Sunroom Camera". Any app can open it.',
+  }),
 };
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'sunroom', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
@@ -38,8 +45,11 @@ let port: MessagePortMain | null = null;
 let vcam: VirtualCameraOutput | null = null;
 let quitting = false;
 
+// Windows hears when an app starts reading. v4l2loopback never says, so Linux feeds the device whenever it is set up.
+const wantsFrames = (state: VirtualCameraState) => state === 'sending' || (process.platform === 'linux' && state === 'waiting');
+
 const onState = (state: VirtualCameraState) => {
-  port?.postMessage({ type: 'state', state, text: STATE_TEXT[state] });
+  port?.postMessage({ type: 'state', state, text: STATE_TEXT[state], pump: wantsFrames(state) });
   tray?.setToolTip(`Sunroom: ${STATE_TEXT[state]}`);
 };
 
@@ -125,7 +135,9 @@ app.on('before-quit', () => {
 app.on('will-quit', () => vcam?.close());
 
 void app.whenReady().then(() => {
-  vcam = process.platform === 'win32' ? new UnityCaptureOutput(onState) : { state: 'unsupported', send() {}, close() {} };
+  vcam = process.platform === 'win32' ? new UnityCaptureOutput(onState)
+    : process.platform === 'linux' ? new V4l2FfmpegOutput(onState)
+    : { state: 'unsupported', send() {}, close() {} };
   protocol.handle('sunroom', (req) => {
     const { pathname } = new URL(req.url);
     // served from the page's own origin so any page CSP that allows 'self' allows the worker
