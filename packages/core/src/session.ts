@@ -138,6 +138,11 @@ export class CameraSession {
     this.enhancer.enabled = on;
   }
 
+  /** Gives a running session its face detector, for one that finished loading after the call started. */
+  set faceTracker(tracker: FaceTracker | null) {
+    this.opts.faceTracker = tracker ?? undefined;
+  }
+
   get director(): boolean {
     return this.directorOn;
   }
