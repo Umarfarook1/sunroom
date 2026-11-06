@@ -32,8 +32,9 @@ const page_html = `<!doctype html><meta charset="utf-8"><video id="v" autoplay m
     document.getElementById('v').srcObject = window.stream;
     return window.stream.getVideoTracks()[0].label;
   };
+  // mean brightness of the whole picture
   window.luma = () => { const v = document.getElementById('v'); const c = document.createElement('canvas'); c.width = 64; c.height = 36;
-    const x = c.getContext('2d'); x.drawImage(v, 16, 4, 32, 24, 0, 0, 64, 36); const d = x.getImageData(0, 0, 64, 36).data; let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i + 1]; return Math.round(s / (d.length / 4)); };
+    const x = c.getContext('2d'); x.drawImage(v, 0, 0, 64, 36); const d = x.getImageData(0, 0, 64, 36).data; let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i + 1]; return Math.round(s / (d.length / 4)); };
 </script>`;
 const server = http.createServer((_q, res) => res.writeHead(200, { 'content-type': 'text/html' }).end(page_html)).listen(0);
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sunroom-live-ext-'));

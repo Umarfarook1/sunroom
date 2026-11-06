@@ -19,6 +19,15 @@ The filter must be registered once before apps can list it:
 - Per user, no admin: `tools/register-virtual-camera.ps1 -Install`. **Unverified.** No source confirms that apps list a DirectShow capture filter registered only under HKCU. Apps run as administrator never will.
 - Machine-wide, admin once: `regsvr32 UnityCaptureFilter64.dll` (and the 32-bit DLL for 32-bit apps). This is the route every other DirectShow virtual camera uses. The camera then shows as "Unity Video Capture".
 
+Either way the filter DLL is loaded into every app that opens the camera. The per-user script
+checks the DLL's hash when it registers it, not afterwards, and the DLL sits in a folder your
+user account can write to (`%LOCALAPPDATA%\sunroom\vcam`). Anything running as you could swap
+it later. That gives no extra rights, but keep it in mind, and use `-Uninstall` when you stop
+using the camera.
+
+While Sunroom runs it keeps the real camera open, also when its window is closed to the tray and
+no app is reading "Sunroom Camera". Quit from the tray to release the camera.
+
 DirectShow cameras are invisible to the Windows Camera app, which lists Media Foundation cameras only. A Windows 11 Media Foundation camera (`MFCreateVirtualCamera`) needs an admin registration and a media source that we have no prebuilt binary for.
 
 Checks:

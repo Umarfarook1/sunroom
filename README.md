@@ -20,7 +20,8 @@ grainy, the wrong colour, or stuttering at half the frame rate.
   that moves, such as your face, is not.
 - **Removes flicker bands** caused by mains lighting.
 - **Keeps skin a plausible colour** when the camera's white balance goes wrong.
-- **Leaves a good picture alone.** A face that is already well lit keeps its own brightness.
+- **Goes easy on a good picture.** A face that is already well lit keeps its own brightness.
+  The picture still gets noise cleanup and some sharpening, so it is not left untouched.
 
 How each part works, and why, is in [docs/how-it-works.md](docs/how-it-works.md).
 
@@ -30,8 +31,9 @@ How each part works, and why, is in [docs/how-it-works.md](docs/how-it-works.md)
 Scored on 6 clips of the same scene recorded from a 720p laptop webcam in a badly lit room, each
 under a different camera state: as found, frame rate held, dim, dark with gain at maximum, and a
 wrong white balance. Every clip is replayed through the real shaders on the laptop's own Intel
-graphics and compared with a well-exposed recording of the same scene. Sunroom finds the face
-with its own detector.
+graphics. Colour and detail are compared with the camera's own automatic recording of the same
+scene, the best this camera does unaided (its face brightness is 73, still short of healthy).
+Sunroom finds the face with its own detector.
 
 | Measure | Untouched camera | Simple brightening | Sunroom |
 |---|---:|---:|---:|
@@ -39,6 +41,7 @@ with its own detector.
 | Face contrast against grain, higher is better | 26.1 | 27.9 | 51.1 |
 | Noise in dark areas (grey levels), lower is better | 2.71 | 6.94 | 2.20 |
 | Flicker banding (% of brightness), lower is better | 0.34 | 0.10 | 0.07 |
+| Brightness wobble between frames (%), lower is better | 0.09 | 0.03 | 0.54 |
 | Skin colour error, lower is better | 3.4 | 8.4 | 2.9 |
 | Shirt colour error, lower is better | 7.5 | 26.7 | 4.8 |
 | Wall colour error, lower is better | 5.7 | 3.8 | 6.2 |
@@ -49,13 +52,16 @@ areas come out 3.2 times noisier than with Sunroom, and colours wash out.
 
 - **Speed.** About 12 ms per 720p frame on Intel UHD integrated graphics, 16 to 20 ms at the 95th
   percentile, so 30 fps fits with room to spare.
-- **Live on the real webcam.** From the camera as found, Sunroom took over after 4 seconds,
-  raised sensor gain from 1 to 6, kept 30 fps, and brought the face from 70 to about 106. The
-  camera's settings were put back when it stopped.
-- **Where it loses.** The wall keeps more tint than simple brightening leaves, because colour is
-  corrected from skin, not from the whole picture. In the darkest clip the face reaches 66, short
-  of healthy. Three harder clips (shadows clipped by the camera, nearly black, an extreme blue
-  cast) are not in the averages: software cannot rebuild what the sensor did not record.
+- **Live on the real webcam.** From the camera as found, Sunroom took over after 4 seconds and
+  kept 30 fps. Over a 25 second run sensor gain went from 1 to 6 and the face from 78 to 109.
+  Gain and exposure were back as found after it stopped.
+- **Where it loses.** Brightness wobble is worse than the untouched camera. That is the first
+  second of each 4.5 second clip, while the detector finds the face and the picture settles;
+  after that second it measures 0.02. The wall keeps more tint than simple brightening leaves,
+  because colour is corrected from skin, not from the whole picture. In the darkest clip the
+  face reaches 66, short of healthy. Three harder clips (shadows clipped by the camera, nearly
+  black, an extreme blue cast) are not in the averages: software cannot rebuild what the sensor
+  did not record.
 
 One camera, one room, one person. The harness is in `eval/` so you can score your own.
 <!-- results:end -->
@@ -106,12 +112,12 @@ Developed and measured on one laptop: Windows 10, Intel UHD graphics, a 720p Son
 | Part | State | How it was checked |
 |---|---|---|
 | Enhancement engine | Works | Unit tests, and scored on recorded clips (see Results) |
-| Camera control | Works on the one webcam tried | Live runs in Chrome on Windows 10: frame rate held at 30 fps, sensor gain raised in the dark, camera settings put back on stop |
+| Camera control | Works on the one webcam tried | Live runs in Chrome on Windows 10: frame rate held at 30 fps, sensor gain raised in the dark, gain put back and exposure returned to automatic on stop |
 | Web app | Works | 16 end-to-end checks on Chrome's fake camera, plus live runs on the real webcam |
 | Browser extension | Works in tests | 13 end-to-end checks in Chromium, including a page with a strict content security policy, a cross-origin iframe, a background tab and a machine without WebGL2. On the real webcam it steered the camera and put the settings back, both on stop and when the tab was closed. Not yet tried on Google Meet, Zoom or Teams |
 | Desktop app on Windows | Sends frames. Camera not registered | End-to-end into a simulated camera filter at 30 fps, and a live run on the real webcam. Not yet tried with the real filter inside Zoom or Teams. Registering the filter for one user without admin rights is unproven |
 | Desktop app on Linux and macOS | Not built | The researched route for each is in `apps/desktop/PLATFORMS.md` |
-| Windows 11, macOS, Linux (web app and extension) | Not tried | Nothing in them is specific to Windows 10. Camera control needs Chromium |
+| Windows 11, macOS, Linux (web app and extension) | Not tried | The picture enhancement uses nothing specific to Windows. Camera control was only tried in Chrome on Windows; on Linux Chrome exposes no sensor gain, so only the frame-rate hold could apply there |
 | Firefox and Safari | Not tried | They expose no camera controls, so only the picture enhancement can apply |
 
 If enhancement fails while a call is running, the call keeps the camera's own picture. That is
@@ -143,8 +149,8 @@ The end-to-end tests play a recorded clip through the browser's fake camera. Mak
 recording with `node tools/make_fake_camera.mjs <clip> data/fake/<name>.mjpeg`.
 
 Picture quality is scored, not guessed. The `eval/` folder replays recorded camera frames
-through the real shaders in Chrome and scores the result against a well-exposed recording of the
-same scene. The recordings used during development contain a person's face and are not in the
+through the real shaders in Chrome and scores the result against the camera's own automatic
+recording of the same scene. The recordings used during development contain a person's face and are not in the
 repository, so record your own:
 
 ```sh
@@ -171,7 +177,19 @@ Layout:
 
 - Software cannot recover what the sensor never recorded. Shadows the camera clipped to black
   stay black; Sunroom's answer there is to raise the camera's own gain, which only works where
-  the browser exposes camera controls (Chromium on Windows and Linux).
+  the browser exposes it. That is Chrome on Windows as far as tested. Without it, brightening is
+  capped at 5 stops and very dark faces stay short of healthy.
+- Camera control changes the real camera. Sunroom puts gain and black level back and returns
+  exposure to automatic when it stops, also when the tab is closed. If the browser crashes or
+  is killed mid-call, the camera keeps the raised gain and manual exposure for every app until
+  Sunroom next runs on the same site, or until you reset the camera in its own settings. A
+  camera you had set to manual exposure yourself comes back in automatic.
+- Two tabs steering the same camera at once are not coordinated. The second one resets the
+  first.
+- On pages whose security policy blocks WebAssembly, the face detector cannot load and Sunroom
+  meters the centre of the picture instead, which lights a face less well.
+- The desktop app keeps the camera open, and its light on, for as long as the app runs, also
+  when the window is closed to the tray. Quit it from the tray to release the camera.
 - No browser exposes the camera's anti-flicker setting, so flicker is removed in software.
   Bands that stand perfectly still cannot be told apart from the scene.
 - White balance is corrected from skin colour. With no face in view it is left as the camera

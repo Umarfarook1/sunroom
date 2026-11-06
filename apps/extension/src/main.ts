@@ -12,16 +12,37 @@ type Handled =
 const nativeGetUserMedia = MediaDevices.prototype.getUserMedia;
 const nativeStop = MediaStreamTrack.prototype.stop;
 const nativeClone = MediaStreamTrack.prototype.clone;
+const nativeStreamClone = MediaStream.prototype.clone;
 const SETTINGS_WAIT_MS = 1000;
 const FIRST_FRAME_MS = 3000;
 const KEEP = 6;
-const FALLBACK: PageSettings = { enabled: true, siteEnabled: true, director: true, assetBase: '' };
+// used when the user's switches have not arrived in time: enhance, but do not touch the camera's controls
+const FALLBACK: PageSettings = { enabled: true, siteEnabled: true, director: false, assetBase: '' };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let settings: PageSettings | null = null;
 let settingsArrived!: () => void;
 const settingsReady = new Promise<void>((r) => (settingsArrived = r));
 const handled: Handled[] = [];
+/** Every track handed to a page in place of a camera, with what to do when it is cloned or stopped. */
+const worn = new WeakMap<MediaStreamTrack, { wear(t: MediaStreamTrack): MediaStreamTrack; stopped(t: MediaStreamTrack): void }>();
+
+// Patched on the prototypes, not on each track, so MediaStreamTrack.prototype.stop.call(track) and
+// MediaStream.clone() are covered: a missed stop leaves the camera light on, a missed clone dies with its original.
+MediaStreamTrack.prototype.stop = function stop(this: MediaStreamTrack): void {
+  nativeStop.call(this);
+  worn.get(this)?.stopped(this);
+};
+MediaStreamTrack.prototype.clone = function clone(this: MediaStreamTrack): MediaStreamTrack {
+  const copy = nativeClone.call(this);
+  return worn.get(this)?.wear(copy) ?? copy;
+};
+MediaStream.prototype.clone = function clone(this: MediaStream): MediaStream {
+  const copy = nativeStreamClone.call(this);
+  const from = this.getVideoTracks();
+  copy.getVideoTracks().forEach((t, i) => worn.get(from[i]!)?.wear(t));
+  return copy;
+};
 const isOn = (s: PageSettings | null) => !s || (s.enabled && s.siteEnabled);
 
 function apply(s: PageSettings): void {
@@ -137,8 +158,14 @@ async function start(camera: MediaStreamTrack, s: PageSettings, asked: MediaTrac
 
   let constraints = structuredClone(asked);
   const own = (value: unknown): PropertyDescriptor => ({ value, configurable: true, writable: true });
+  const stopped = (t: MediaStreamTrack) => {
+    live.delete(t);
+    // the camera light goes off with the last of the page's copies
+    if (!live.size) release();
+  };
   const wear = (t: MediaStreamTrack): MediaStreamTrack => {
     if (t.readyState === 'live') live.add(t);
+    worn.set(t, { wear, stopped });
     Object.defineProperties(t, {
       label: { get: () => camera.label, configurable: true },
       getSettings: own(() => camera.getSettings()),
@@ -147,13 +174,6 @@ async function start(camera: MediaStreamTrack, s: PageSettings, asked: MediaTrac
       applyConstraints: own(async (c: MediaTrackConstraints = {}) => {
         await camera.applyConstraints(c);
         constraints = structuredClone(c);
-      }),
-      clone: own(() => wear(nativeClone.call(t))),
-      stop: own(() => {
-        nativeStop.call(t);
-        live.delete(t);
-        // the camera light goes off with the last of the page's copies
-        if (!live.size) release();
       }),
     });
     return t;
@@ -177,6 +197,8 @@ MediaDevices.prototype.getUserMedia = async function getUserMedia(this: MediaDev
   const camera = stream.getVideoTracks()[0];
   // audio only, or a screen asked for through legacy getUserMedia constraints
   if (!camera || 'displaySurface' in camera.getSettings()) return stream;
+  // Sunroom's own web app enhances for itself; doing it twice would also put two directors on one camera
+  if (document.querySelector('meta[name="sunroom"][content="app"]')) return stream;
   try {
     return await enhance(stream, camera, constraints);
   } catch (err) {

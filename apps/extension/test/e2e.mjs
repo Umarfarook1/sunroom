@@ -255,6 +255,15 @@ const audio = await page.evaluate(() => cam.open({ audio: true, video: false }))
 const afterAudio = await states();
 check('(d) audio-only request passes through', audio.audio === 1 && audio.video === 0 && afterAudio === allStopped, `audio ${audio.audio}, video ${audio.video}, cameras handled ${afterAudio}`);
 
+const cloned = await page.evaluate(() => cam.cloneThenStop());
+await page.waitForTimeout(1500);
+const afterClone = (await states()).split(',').at(-1);
+check(
+  '(d) MediaStream.clone() keeps the camera, a stop through the prototype releases it',
+  cloned.labels.every((l) => l === device.label) && cloned.cloneAfterOriginalStopped === 'live' && cloned.frames > 10 && afterClone === 'ended',
+  `labels ${JSON.stringify(cloned.labels)}, clone after its original stopped: ${cloned.cloneAfterOriginalStopped}, ${cloned.frames} frames in 1 s, real camera after the last stop: ${afterClone}`,
+);
+
 await page.goto(`${site}/csp/gum.html`);
 const csp = await page.evaluate(() => cam.open());
 await page.waitForTimeout(3000);

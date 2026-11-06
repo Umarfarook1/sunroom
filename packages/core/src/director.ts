@@ -30,6 +30,8 @@ export interface CameraSettings {
   exposureTime?: number;
   gain?: number;
   whiteBalanceMode?: string;
+  /** Kelvin; only meaningful while white balance is manual. */
+  colorTemperature?: number;
   brightness?: number;
 }
 
@@ -53,7 +55,9 @@ export interface Command {
   exposureMode?: 'manual' | 'continuous';
   exposureTime?: number;
   exposureCompensation?: number;
-  whiteBalanceMode?: 'continuous';
+  whiteBalanceMode?: 'continuous' | 'manual';
+  /** Only sent when putting a hand-fixed white balance back. */
+  colorTemperature?: number;
   brightness?: number;
 }
 
@@ -64,12 +68,16 @@ export interface DirectorState {
   sinceMs: number | null;
   /** No takeover before this time: avoids flapping after handing control back. */
   holdOffUntilMs: number;
+  /** No takeover for a dark face before this time. Longer than the hold-off: a takeover that ended in "too bright" was probably wrong. */
+  starvedHoldOffUntilMs: number;
   /** Gain step awaiting proof that it changed the picture. */
   gainProbe: { shortfallBefore: number } | null;
   gainWorks: boolean;
-  /** A gain that clipped highlights; not tried again until `ceilingUntilMs`. Stops raise/lower cycling. */
+  /** A gain that clipped highlights; not tried again until `ceilingUntilMs`. */
   gainCeiling: number | null;
   ceilingUntilMs: number;
+  /** How long the next ceiling lasts. Grows each time gain clips, so a still scene is retried ever more rarely. */
+  ceilingMs: number;
   whiteBalanceChecked: boolean;
   exposureChecked: boolean;
 }
@@ -86,10 +94,12 @@ export const initialDirectorState = (): DirectorState => ({
   lastCommandMs: -1e9,
   sinceMs: null,
   holdOffUntilMs: 0,
+  starvedHoldOffUntilMs: 0,
   gainProbe: null,
   gainWorks: true,
   gainCeiling: null,
   ceilingUntilMs: 0,
+  ceilingMs: CEILING_MS,
   whiteBalanceChecked: false,
   exposureChecked: false,
 });
@@ -98,7 +108,9 @@ const SETTLE_MS = 1200; // cameras need about a second to apply and stabilise a 
 const SLOW_FOR_MS = 1500;
 const BRIGHT_FOR_MS = 3000;
 const HOLD_OFF_MS = 8000;
+const STARVED_HOLD_OFF_MS = 60000;
 const CEILING_MS = 30000;
+const CEILING_MAX_MS = 30 * 60000;
 const P98_HEADROOM = 0.8; // only add gain while highlights have room
 const P98_CLIPPING = 0.95;
 const STARVED_STOPS = 2.5; // past this much software brightening, sensor gain gives the cleaner picture
@@ -161,6 +173,7 @@ export function direct(state: DirectorState, caps: CameraCaps, settings: CameraS
     // auto exposure is already at the longest shutter this frame rate allows, so pinning it there costs
     // nothing, and gain is the only light left; with no headroom in the highlights gain would not be used
     const starved =
+      input.nowMs >= state.starvedHoldOffUntilMs &&
       input.shortfallStops > STARVED_STOPS &&
       input.p98 < P98_HEADROOM &&
       settings.exposureTime !== undefined &&
@@ -181,6 +194,12 @@ export function direct(state: DirectorState, caps: CameraCaps, settings: CameraS
     );
   }
 
+  // Another session on the same camera (a second tab, a page that opened the camera twice) can put
+  // exposure back to automatic under us. Believe the camera, not our own bookkeeping.
+  if (settings.exposureMode === 'continuous') {
+    return idle({ ...state, mode: 'observe', sinceMs: null, gainProbe: null, holdOffUntilMs: input.nowMs + HOLD_OFF_MS });
+  }
+
   // manual mode: light comes from sensor gain
   if (state.gainProbe) {
     const helped = state.gainProbe.shortfallBefore - input.shortfallStops > 0.08;
@@ -193,13 +212,13 @@ export function direct(state: DirectorState, caps: CameraCaps, settings: CameraS
   if (tooBright) {
     if (gain && g !== undefined && g > gain.min && state.gainWorks) {
       // clipped highlights are gone for good, a dark face can still be lifted: remember this gain was too much
-      const ceiling = clipping ? { gainCeiling: g, ceilingUntilMs: input.nowMs + CEILING_MS } : {};
+      const ceiling = clipping ? { gainCeiling: g, ceilingUntilMs: input.nowMs + state.ceilingMs, ceilingMs: Math.min(state.ceilingMs * 4, CEILING_MAX_MS) } : {};
       return sent({ ...state, ...ceiling, sinceMs: null }, { exposureCompensation: Math.max(gain.min, g - gain.step) }, clipping ? 'highlights are clipping; lowering sensor gain' : 'scene is bright; lowering sensor gain');
     }
     if (state.sinceMs === null) return idle({ ...state, sinceMs: input.nowMs });
     if (input.nowMs - state.sinceMs < BRIGHT_FOR_MS) return idle(state);
     return sent(
-      { ...state, mode: 'observe', sinceMs: null, holdOffUntilMs: input.nowMs + HOLD_OFF_MS },
+      { ...state, mode: 'observe', sinceMs: null, holdOffUntilMs: input.nowMs + HOLD_OFF_MS, starvedHoldOffUntilMs: input.nowMs + STARVED_HOLD_OFF_MS },
       { exposureMode: 'continuous' },
       'plenty of light; handing exposure back to the camera',
     );

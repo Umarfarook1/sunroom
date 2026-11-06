@@ -126,6 +126,39 @@ describe('direct', () => {
     expect(d.command).toEqual({ exposureCompensation: 5 });
   });
 
+  it('waits four times longer after each clipping, so a still scene is not flashed every half minute', () => {
+    let d = direct(inManual(), caps, { ...manual, gain: 5 }, input({ nowMs: 5000, shortfallStops: 0.9, p98: 0.97 }));
+    d = direct(d.state, caps, { ...manual, gain: 4 }, input({ nowMs: 36000, shortfallStops: 1.3, p98: 0.7 }));
+    expect(d.command).toEqual({ exposureCompensation: 5 });
+    d = direct(d.state, caps, { ...manual, gain: 5 }, input({ nowMs: 38000, shortfallStops: 0.9, p98: 0.97 }));
+    expect(d.command).toEqual({ exposureCompensation: 4 });
+    d = direct(d.state, caps, { ...manual, gain: 4 }, input({ nowMs: 38000 + 100000, shortfallStops: 1.3, p98: 0.7 }));
+    expect(d.command).toBeNull();
+    d = direct(d.state, caps, { ...manual, gain: 4 }, input({ nowMs: 38000 + 121000, shortfallStops: 1.3, p98: 0.7 }));
+    expect(d.command).toEqual({ exposureCompensation: 5 });
+  });
+
+  it('goes back to observing when something else returned the camera to automatic exposure', () => {
+    const d = direct(inManual(), caps, { ...auto, gain: 3 }, input({ nowMs: 5000, shortfallStops: 3, p98: 0.4 }));
+    expect(d.command).toBeNull();
+    expect(d.state.mode).toBe('observe');
+    expect(d.state.holdOffUntilMs).toBe(13000);
+  });
+
+  it('does not take over for a dark face again within a minute of handing back', () => {
+    let d = direct(inManual(), caps, manual, input({ nowMs: 5000, shortfallStops: -1 }));
+    d = direct(d.state, caps, manual, input({ nowMs: 8100, shortfallStops: -1 }));
+    expect(d.command).toEqual({ exposureMode: 'continuous' });
+    const at32 = { ...auto, exposureTime: 312.5 };
+    const dark = { shortfallStops: 5, p98: 0.4 };
+    d = direct(d.state, caps, at32, input({ nowMs: 20000, ...dark }));
+    d = direct(d.state, caps, at32, input({ nowMs: 22000, ...dark }));
+    expect(d.command).toBeNull();
+    d = direct(d.state, caps, at32, input({ nowMs: 69000, ...dark }));
+    d = direct(d.state, caps, at32, input({ nowMs: 71000, ...dark }));
+    expect(d.command).toEqual({ exposureMode: 'manual', exposureTime: 312.5 });
+  });
+
   it('stops using gain when a step made no difference', () => {
     let d = direct(inManual(), caps, { ...manual, gain: 2 }, input({ nowMs: 5000, shortfallStops: 2.4, p98: 0.4 }));
     expect(d.command).toEqual({ exposureCompensation: 3 });

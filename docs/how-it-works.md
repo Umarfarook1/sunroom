@@ -37,8 +37,11 @@ Its policy is minimal intervention.
   director takes over in the same way. It does not when the shutter is short (a window behind
   the person), because pinning it longer would blow out the picture.
 - In manual mode light comes from sensor gain, one step at a time, only while highlights have
-  headroom. A gain that clipped highlights is remembered and not retried for 30 seconds, which
-  stops the loop from cycling.
+  headroom. A gain that clipped highlights is remembered and not retried for 30 seconds. Each
+  further clipping makes the wait four times longer, up to 30 minutes, so a still scene is
+  retried ever more rarely instead of every half minute.
+- If something else returns the camera to automatic exposure (a second tab, a page that opened
+  the camera twice), the director believes the camera and goes back to watching.
 - The frame rate is the camera's own. Chromium counts the frames a camera produced
   (`MediaStreamTrack.stats`), so a slow computer is not mistaken for a slow camera. Where that
   count is missing, arrival times are used and ignored while Sunroom itself is the busy part.
@@ -48,13 +51,20 @@ Its policy is minimal intervention.
 - A hand-fixed white balance is switched back to automatic. A negative black level that clips
   shadows is raised toward the middle of its range.
 - When the scene gets bright, exposure is handed back to the camera.
-- On stop, or when the user turns the director off, every control it changed is put back.
+- On stop, or when the user turns the director off, gain, black level and a hand-fixed white
+  balance are put back as found. Exposure always returns to automatic: a camera found in manual
+  exposure may be Sunroom's own leftover from a tab that was killed, so that state is not kept.
+- After handing exposure back, the director does not take over for a dark face again for a
+  minute. A takeover that ended in "too bright" was probably a mistake.
 
 The director is a pure function (`direct(state, caps, settings, input)`), so its rules are unit
 tested without a camera.
 
-Browsers expose these controls through `MediaStreamTrack.applyConstraints`. Chromium does on
-Windows and Linux. Firefox and Safari do not, and there the director does nothing. No browser
+Browsers expose these controls through `MediaStreamTrack.applyConstraints`. This was tried in
+Chrome on Windows only. On Linux Chrome exposes exposure time but maps `exposureCompensation` to
+exposure bias, not sensor gain (`research/02-platform-plumbing.md`), so there the director could
+hold the frame rate but its gain steps would do nothing, which the per-step check detects.
+Firefox and Safari expose none of these, and there the director does nothing. No browser
 exposes the anti-flicker (mains frequency) setting, so Sunroom removes flicker in software.
 
 ## Stage 2: the picture pipeline (WebGL2)
@@ -128,7 +138,7 @@ Quality is scored on recorded clips, not judged by eye alone.
    dark, high gain, colour casts), saving the camera's own MJPEG frames without re-encoding.
 2. `eval/annotate.py` marks the face in every frame with an independent detector.
 3. `eval/run.mjs` replays the frames through the real shaders in Chrome on the real GPU.
-4. `eval/metrics.py` scores each result against the well-exposed clip of the same scene: face
+4. `eval/metrics.py` scores each result against the camera's own automatic clip of the same scene: face
    exposure, noise in static regions, contrast against noise, flicker, banding, detail, and
    colour error on skin, shirt and wall.
 5. `eval/baselines.py` produces the simple alternatives (gain, gamma, CLAHE with grey-world) that

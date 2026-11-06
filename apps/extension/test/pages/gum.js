@@ -75,6 +75,22 @@ window.cam = {
     t.stop();
     return { fps: Math.round((frames / seconds) * 10) / 10, frames, seconds: Math.round(seconds * 10) / 10, visibility, cloneLabel: t.label };
   },
+  // the way some call apps hold the camera: a clone of the whole stream, stopped through the prototype
+  async cloneThenStop() {
+    const s = await navigator.mediaDevices.getUserMedia({ video: true });
+    const copy = s.clone();
+    const [a, b] = [s.getVideoTracks()[0], copy.getVideoTracks()[0]];
+    const labels = [a.label, b.label];
+    a.stop();
+    await new Promise((r) => setTimeout(r, 1500));
+    const cloneAfterOriginalStopped = b.readyState;
+    streams.push(copy);
+    video.srcObject = copy;
+    await video.play();
+    const { frames } = await this.count(1000);
+    MediaStreamTrack.prototype.stop.call(b);
+    return { labels, cloneAfterOriginalStopped, frames };
+  },
   apply: (c, i = -1) => streams.at(i).getVideoTracks()[0].applyConstraints(c),
   stopVideo: (i = -1) => streams.at(i).getVideoTracks()[0].stop(),
   stopAll: () => streams.forEach((s) => s.getTracks().forEach((t) => t.stop())),

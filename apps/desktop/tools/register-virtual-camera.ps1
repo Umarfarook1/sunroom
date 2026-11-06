@@ -16,6 +16,8 @@
   - No FilterData value is written; whether DirectShow needs it to list a capture source is unverified.
   - Creating HKCU\Software\Classes\CLSID\{860BB310-...}\Instance might hide machine-wide DirectShow
     virtual cameras (for example OBS) from the merged registry view; also unverified.
+  - The DLL hash is checked now, not later. The DLL stays in a folder your account can write to,
+    and every app that opens the camera loads it, so anything running as you could swap it.
   If the camera does not appear, undo with -Uninstall and use the machine-wide route instead, as an
   administrator:  regsvr32 "<path>\UnityCaptureFilter64.dll"  (it then appears as "Unity Video Capture").
 

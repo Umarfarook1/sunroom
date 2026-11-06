@@ -16,7 +16,10 @@ export interface SessionOptions extends EnhancerOptions {
   director?: boolean;
   /** Milliseconds between face detections. Default 200. */
   faceIntervalMs?: number;
-  /** Put back every camera control the director changed when the session stops. Default true. */
+  /**
+   * Put the camera's controls back when the session stops: gain, black level and a hand-fixed white
+   * balance as found, exposure to automatic. Default true.
+   */
   restoreCameraOnStop?: boolean;
 }
 
@@ -65,6 +68,7 @@ type ImageSettings = MediaTrackSettings & {
   exposureTime?: number;
   exposureCompensation?: number;
   whiteBalanceMode?: string;
+  colorTemperature?: number;
   brightness?: number;
 };
 
@@ -82,7 +86,14 @@ function readCaps(track: MediaStreamTrack): CameraCaps {
 
 function readSettings(track: MediaStreamTrack): CameraSettings {
   const s = track.getSettings() as ImageSettings;
-  return { exposureMode: s.exposureMode, exposureTime: s.exposureTime, gain: s.exposureCompensation, whiteBalanceMode: s.whiteBalanceMode, brightness: s.brightness };
+  return {
+    exposureMode: s.exposureMode,
+    exposureTime: s.exposureTime,
+    gain: s.exposureCompensation,
+    whiteBalanceMode: s.whiteBalanceMode,
+    colorTemperature: s.colorTemperature,
+    brightness: s.brightness,
+  };
 }
 
 export class CameraSession {
@@ -177,6 +188,10 @@ export class CameraSession {
     if (this.touched.has('exposureTime') && o.exposureMode === 'manual') back.exposureTime = o.exposureTime;
     if (this.touched.has('exposureCompensation')) back.exposureCompensation = o.gain;
     if (this.touched.has('brightness')) back.brightness = o.brightness;
+    if (this.touched.has('whiteBalanceMode') && o.whiteBalanceMode === 'manual') {
+      back.whiteBalanceMode = 'manual';
+      back.colorTemperature = o.colorTemperature;
+    }
     this.touched.clear();
     const ok = await this.camera.applyConstraints({ advanced: [back as MediaTrackConstraintSet] }).then(
       () => true,
@@ -232,6 +247,12 @@ export class CameraSession {
         while (!this.stopped) {
           const { value: frame, done } = await reader.read();
           if (done || !frame) break;
+          // stop() may have run while we waited: enhancing this frame would rebuild the GPU pipeline it
+          // disposed and could send the camera a command after its controls were put back
+          if (this.stopped) {
+            frame.close();
+            break;
+          }
           let out: VideoFrame = frame;
           if (!this.status.error) {
             try {
@@ -334,6 +355,7 @@ export class CameraSession {
   }
 
   private runDirector(frame: FrameReport, now: number): void {
+    if (this.stopped) return;
     const nominalFps = this.camera.getSettings().frameRate ?? 30;
     const d = direct(this.directorState, this.caps, readSettings(this.camera), {
       nowMs: now,
