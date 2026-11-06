@@ -108,7 +108,7 @@ Developed and measured on one laptop: Windows 10, Intel UHD graphics, a 720p Son
 | Enhancement engine | Works | Unit tests, and scored on recorded clips (see Results) |
 | Camera control | Works on the one webcam tried | Live runs in Chrome on Windows 10: frame rate held at 30 fps, sensor gain raised in the dark, camera settings put back on stop |
 | Web app | Works | 16 end-to-end checks on Chrome's fake camera, plus live runs on the real webcam |
-| Browser extension | Works in tests | 13 end-to-end checks in Chromium, including a page with a strict content security policy, a cross-origin iframe, a background tab and a machine without WebGL2. Not yet tried on Google Meet, Zoom or Teams |
+| Browser extension | Works in tests | 13 end-to-end checks in Chromium, including a page with a strict content security policy, a cross-origin iframe, a background tab and a machine without WebGL2. On the real webcam it steered the camera and put the settings back, both on stop and when the tab was closed. Not yet tried on Google Meet, Zoom or Teams |
 | Desktop app on Windows | Sends frames. Camera not registered | End-to-end into a simulated camera filter at 30 fps, and a live run on the real webcam. Not yet tried with the real filter inside Zoom or Teams. Registering the filter for one user without admin rights is unproven |
 | Desktop app on Linux and macOS | Not built | The researched route for each is in `apps/desktop/PLATFORMS.md` |
 | Windows 11, macOS, Linux (web app and extension) | Not tried | Nothing in them is specific to Windows 10. Camera control needs Chromium |
