@@ -37,7 +37,12 @@ jobs:
           "UNINSTALL_ARGS=$($Matches[2])" >> $env:GITHUB_ENV
       - run: node tools/make_synthetic_clip.mjs data/fake/synthetic.y4m 30 1280 720
       - name: Launch the installed app on the fake camera and check it enhances
-        run: node apps/desktop/test/installed.mjs "$env:SUNROOM_EXE" data/fake/synthetic.y4m
+        run: node apps/desktop/test/installed.mjs "$env:SUNROOM_EXE" data/fake/synthetic.y4m --setup
+      - name: The camera the button set up is registered for this user
+        run: |
+          $key = 'HKCU:\Software\Classes\CLSID\{5C2CD55C-92AD-4999-8666-912BD3E70010}'
+          Get-ItemProperty "$key\InprocServer32" | Format-List '(default)', ThreadingModel
+          if ((Get-ItemProperty $key).'(default)' -ne 'Sunroom Camera') { throw 'Sunroom Camera is not registered' }
       - name: Uninstall silently
         run: |
           Start-Process -FilePath $env:UNINSTALLER -ArgumentList $env:UNINSTALL_ARGS -Wait
@@ -46,7 +51,9 @@ jobs:
           for ($i = 0; (Test-Path $dir) -and $i -lt 60; $i++) { Start-Sleep 1 }
           if (Test-Path $dir) { Get-ChildItem $dir -Recurse | ForEach-Object FullName; throw "$dir is still there" }
           if (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object DisplayName -like 'Sunroom*') { throw 'the Apps entry is still there' }
-          "uninstalled: $dir and its Apps entry are gone"
+          if (Test-Path 'HKCU:\Software\Classes\CLSID\{5C2CD55C-92AD-4999-8666-912BD3E70010}') { throw 'uninstalling left Sunroom Camera registered' }
+          if (Test-Path "$env:LOCALAPPDATA\sunroomcam") { throw 'uninstalling left the filter files behind' }
+          "uninstalled: $dir, its Apps entry and the Sunroom Camera registration are gone"
       - uses: actions/upload-artifact@v4
         with:
           name: sunroom-setup-windows-x64

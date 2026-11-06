@@ -167,26 +167,24 @@ Apps then list it as "Sunroom Camera". See
 The desktop app has an installer for 64-bit Windows. It installs for your user only and does not
 ask for admin rights.
 
-1. Get the installer. GitHub builds it on every push to `main`. Open the
-   [windows-installer workflow](https://github.com/Umarfarook1/sunroom/actions/workflows/windows-installer.yml),
-   open the latest run with a green tick, and download `sunroom-setup-windows-x64` under
-   Artifacts. You need to be signed in to GitHub. The download is a zip with
-   `Sunroom Setup 0.1.0.exe` inside. To build it yourself instead, run `npm ci` and then
-   `npm run dist -w apps/desktop` in a clone. The installer is then in `apps/desktop/release`.
-2. Run `Sunroom Setup 0.1.0.exe`. The installer is not signed, so Windows SmartScreen warns
-   that it comes from an unknown publisher. Choose **More info**, then **Run anyway**. Sunroom
-   installs into `%LOCALAPPDATA%\Programs\sunroom` and adds a Sunroom shortcut to the Start menu
-   and the desktop.
-3. To use Sunroom in Zoom, Teams or another native app, register the virtual camera once.
-   Download `UnityCaptureFilter64.dll` and `UnityCaptureFilter32.dll` from the
-   [UnityCapture Install folder](https://github.com/schellingb/UnityCapture/tree/master/Install)
-   into `%LOCALAPPDATA%\sunroom\vcam`. Then copy the command from the status line at the bottom
-   of the Sunroom window and run it. The script lists every registry value it will write, all
-   for your user only, and asks before it writes them.
+1. Download `Sunroom Setup 0.1.0.exe` from the
+   [Releases page](https://github.com/Umarfarook1/sunroom/releases). GitHub builds and tests it
+   on a Windows machine for every change. To build it yourself instead, run `npm ci` and then
+   `npm run dist -w apps/desktop` in a clone; the installer is then in `apps/desktop/release`.
+2. Run it. The installer is not signed, so Windows SmartScreen warns that it comes from an
+   unknown publisher. Choose **More info**, then **Run anyway**. Sunroom installs for your user
+   and adds a shortcut to the Start menu and the desktop.
+3. To use Sunroom in Zoom, Teams or another app, click **Set up Sunroom Camera** at the bottom
+   of the Sunroom window, once. It adds a camera named "Sunroom Camera" for your user, with no
+   admin rights. Restart the call app, then pick "Sunroom Camera" as its camera.
 
-To remove Sunroom, uninstall "Sunroom 0.1.0" in Settings, Apps. Uninstalling does not remove the
-camera registration, so if you registered it, first run the same command with `-Uninstall`
-instead of `-Install`.
+Sunroom keeps running in the tray when you close its window, so the camera keeps working in
+your calls. While the window is closed and no app is using Sunroom Camera, it lets go of your
+webcam and the webcam light goes off.
+
+To remove Sunroom, uninstall "Sunroom" in Settings, Apps. That removes Sunroom Camera too. To
+remove only the camera, right-click the Sunroom tray icon and choose **Remove Sunroom Camera
+from this PC**.
 
 ## Status
 
@@ -199,8 +197,8 @@ Developed and measured on one laptop: Windows 10, Intel UHD graphics, a 720p Son
 | Camera control | Works on the one webcam tried | Live runs in Chrome on Windows 10: frame rate held at 30 fps, sensor gain raised in the dark, gain put back and exposure returned to automatic on stop |
 | Web app | Works | 16 end-to-end checks on Chrome's fake camera, plus live runs on the real webcam |
 | Browser extension | Works in tests | 14 end-to-end checks in Chromium, including a page with a strict content security policy, a cross-origin iframe, a background tab and a machine without WebGL2. On the real webcam it steered the camera and put the settings back, both on stop and when the tab was closed. On real pages (fake camera, nothing sent out): a WebRTC peer-connection call where the far end shows the enhanced picture, the Jitsi Meet pre-join screen, and webcamtests.com. Not yet tried on Google Meet, Zoom or Teams, which need a login |
-| Desktop app on Windows | Works with the real virtual camera | Registered for one user without admin rights, then the whole chain on real hardware: webcam, Sunroom, "Sunroom Camera", read by ffmpeg through DirectShow and by Chrome through `getUserMedia` at 1280x720 and 29 fps. The real filter returns a test picture pixel for pixel, upright and in order. Not yet tried inside Zoom or Teams themselves |
-| Windows installer | Works on GitHub's Windows machine | Every push to `main` builds the installer, installs it silently for the current user, starts the installed app on a synthetic 1280x720 clip and checks that it shows the web UI, enhances without errors, loads its virtual camera code and has its register script in the install folder, then uninstalls it silently and checks the folder and the Apps entry are gone. That machine is Windows build 26100 and has no GPU, so the app runs there at about 3 fps. The installer has not been run on Windows 10 or on a PC with a webcam; the unpacked app passes the same check on the Windows 10 laptop |
+| Desktop app on Windows | Works with the real virtual camera | Set up from the app's own button on a Windows 10 laptop, without admin rights (`eval/live-windows-app.mjs`, 11 checks: setup, the webcam released while idle, woken by an app in about 2 seconds). Then the whole chain on real hardware: webcam, Sunroom, "Sunroom Camera", read by ffmpeg through DirectShow and by Chrome through `getUserMedia` at 1280x720 and 29 fps. The real filter returns a test picture pixel for pixel, upright and in order. Not yet tried inside Zoom or Teams themselves |
+| Windows installer | Works on GitHub's Windows machine | Every push to `main` builds the installer, installs it silently for the current user, starts the installed app on a synthetic 1280x720 clip and checks that it shows the web UI and enhances without errors, clicks the setup button and checks that Sunroom Camera is registered, then uninstalls it silently and checks that the folder, the Apps entry and the camera registration are gone. That machine is Windows build 26100 and has no GPU, so the app runs there at about 3 fps. The installer has not been run on Windows 10 or on a PC with a webcam; the unpacked app passes the same check on the Windows 10 laptop |
 | Desktop app on Linux | Parked, not working yet | A virtual camera through v4l2loopback and ffmpeg is written and its pipe is tested. It has not passed a test on a real Linux device. Windows is being finished first |
 | Desktop app on macOS | Not built | The researched route is in `apps/desktop/PLATFORMS.md` |
 | Linux, macOS and the Windows 11 family (engine and extension) | Works on GitHub's test machines | Every push runs the unit tests and `eval/smoke.mjs` on Linux x64, macOS on Apple silicon and Windows build 26100 (the Windows 11 24H2 family, server edition): a dark synthetic clip goes from brightness 22 to 105 through the engine, and a plain page gets the enhanced camera from the extension. Those machines have no webcam, so camera control stays tried on Windows 10 only; on Linux Chrome exposes no sensor gain, so only the frame-rate hold could apply there |
@@ -279,8 +277,9 @@ Layout:
 - Sunroom needs a GPU, any integrated one will do. On a machine with none the browser renders
   in software and manages about 10 frames per second at 640x360 (measured on GitHub's Linux and
   Windows machines), which is too slow for a call.
-- The desktop app keeps the camera open, and its light on, for as long as the app runs, also
-  when the window is closed to the tray. Quit it from the tray to release the camera.
+- On Linux the desktop app would keep the camera open for as long as it runs, because the Linux
+  virtual camera cannot tell when an app is reading it. On Windows the camera is released while
+  nothing uses it.
 - No browser exposes the camera's anti-flicker setting, so flicker is removed in software.
   Bands that stand perfectly still cannot be told apart from the scene.
 - White balance is corrected from skin colour. With no face in view it is left as the camera
@@ -294,4 +293,5 @@ MIT. See [LICENSE](LICENSE).
 
 Sunroom uses [MediaPipe](https://github.com/google-ai-edge/mediapipe) and its BlazeFace model
 (Apache-2.0) to find the face. The Windows virtual camera uses the
-[UnityCapture](https://github.com/schellingb/UnityCapture) filter (MIT), which is not bundled.
+[UnityCapture](https://github.com/schellingb/UnityCapture) filter (MIT). Its two DLLs ship unchanged in
+`apps/desktop/vendor/unitycapture`, with their licence.

@@ -14,7 +14,7 @@ Research behind every row: `research/02-platform-plumbing.md`, sections 1 to 5.
 
 Sunroom Camera is the UnityCapture DirectShow filter (MIT). Sunroom writes frames into the filter's shared memory with koffi, so nothing is compiled. `src/vcam/unity-capture.ts` cites the upstream source lines for each protocol detail: RGBA byte order, stride in pixels, rows bottom-up.
 
-The filter must be registered once before apps can list it:
+The filter must be registered once before apps can list it. The app does this from its **Set up Sunroom Camera** button, which runs the per-user script below with the filter files that ship in `vendor/unitycapture`. By hand:
 
 - Per user, no admin: `tools/register-virtual-camera.ps1 -Install`. Tried on one Windows 10 laptop: ffmpeg and Chrome list and read the camera. Apps run as administrator will not see it.
 - Machine-wide, admin once: `regsvr32 UnityCaptureFilter64.dll` (and the 32-bit DLL for 32-bit apps). This is the route every other DirectShow virtual camera uses. The camera then shows as "Unity Video Capture".
@@ -25,8 +25,9 @@ user account can write to (`%LOCALAPPDATA%\sunroom\vcam`). Anything running as y
 it later. That gives no extra rights, but keep it in mind, and use `-Uninstall` when you stop
 using the camera.
 
-While Sunroom runs it keeps the real camera open, also when its window is closed to the tray and
-no app is reading "Sunroom Camera". Quit from the tray to release the camera.
+Sunroom closes the real camera 5 seconds after its window is hidden or minimised and no app is
+reading "Sunroom Camera", and opens it again when the window comes back or an app starts reading.
+On the test laptop an app that opened the camera got Sunroom's picture after 2 to 3 seconds.
 
 DirectShow cameras are invisible to the Windows Camera app, which lists Media Foundation cameras only. A Windows 11 Media Foundation camera (`MFCreateVirtualCamera`) needs an admin registration and a media source that we have no prebuilt binary for.
 
