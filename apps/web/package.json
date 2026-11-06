@@ -1,0 +1,1 @@
+{ "name": "@sunroom/web", "private": true, "version": "0.1.0", "type": "module", "scripts": { "build": "node build.mjs", "dev": "node build.mjs --serve" } }

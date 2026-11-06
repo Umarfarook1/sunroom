@@ -51,6 +51,8 @@ export interface Decision {
   render: RenderParams;
   /** For the next frame's analysis half. */
   analysis: Omit<AnalysisParams, 'reset' | 'deflicker'>;
+  /** Stops of brightening the scene needs before any cap: what the camera itself should try to supply. */
+  shortfallStops: number;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -60,12 +62,12 @@ const smoothstep = (a: number, b: number, x: number) => {
 };
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 
-function goals(s: FrameStats, t: Tuning): ControlState {
+function goals(s: FrameStats, t: Tuning): { state: ControlState; shortfallStops: number } {
   const anchor = s.face ? Math.log2(s.face.median + 1e-5) : s.logAvg;
   // a face already in a healthy range keeps its brightness: skin tones differ, and all are right
   const targetLin = s.face ? clamp(s.face.median, t.faceBand[0], t.faceBand[1]) : t.sceneTarget;
-  let target = Math.log2(targetLin);
-  target = Math.min(target, anchor + t.maxGainStops);
+  const wanted = Math.log2(targetLin);
+  const target = Math.min(wanted, anchor + t.maxGainStops);
 
   const xHi = Math.log2(s.p98 + 1e-5) - anchor;
   const cHi = xHi > 0.05 ? clamp((Math.log2(t.highlightCeiling) - target) / xHi, 0.35, 1) : 1;
@@ -81,7 +83,10 @@ function goals(s: FrameStats, t: Tuning): ControlState {
     wbBG = clamp(needBG, -t.maxWbShift, t.maxWbShift);
     wbExcess = Math.hypot(needRG - wbRG, needBG - wbBG);
   }
-  return { anchor, target, cHi, wbRG, wbBG, wbExcess, sigmaDark: Math.max(s.sigmaDark, 0.002), sigmaBright: Math.max(s.sigmaBright, 0.002) };
+  return {
+    state: { anchor, target, cHi, wbRG, wbBG, wbExcess, sigmaDark: Math.max(s.sigmaDark, 0.002), sigmaBright: Math.max(s.sigmaBright, 0.002) },
+    shortfallStops: wanted - anchor,
+  };
 }
 
 /**
@@ -89,7 +94,7 @@ function goals(s: FrameStats, t: Tuning): ControlState {
  * @param dt seconds since the previous frame
  */
 export function control(prev: ControlState | null, s: FrameStats, dt: number, t: Tuning = DEFAULT_TUNING): Decision {
-  const g = goals(s, t);
+  const { state: g, shortfallStops } = goals(s, t);
   let state = g;
   if (prev) {
     const k = 1 - Math.exp(-dt / t.settleSeconds);
@@ -108,6 +113,8 @@ export function control(prev: ControlState | null, s: FrameStats, dt: number, t:
   }
 
   const gainStops = state.target - state.anchor;
+  // how grainy the dark parts will look: either we are lifting them a lot, or the sensor already is
+  const grain = Math.max(smoothstep(1, 3.5, gainStops), smoothstep(0.01, 0.03, state.sigmaDark));
   const r = Math.exp(state.wbRG);
   const b = Math.exp(state.wbBG);
   const norm = 0.2126 * r + 0.7152 + 0.0722 * b;
@@ -118,17 +125,18 @@ export function control(prev: ControlState | null, s: FrameStats, dt: number, t:
     cLo: mix(0.85, 1, smoothstep(1.5, 4, gainStops)), // lift shadows a little, unless they are all noise
     wb: [r / norm, 1 / norm, b / norm],
     detail: 1,
-    sharpen: mix(0.7, 0.15, smoothstep(2, 5, gainStops)),
-    chromaLod: clamp(0.5 + 0.5 * gainStops, 0.5, 2.5),
+    sharpen: mix(0.7, 0.15, Math.max(smoothstep(2, 5, gainStops), grain * 0.7)),
+    chromaLod: clamp(0.5 + Math.max(0.5 * gainStops, 2 * grain), 0.5, 2.5),
     // a colour cast too strong to correct is shown as a calmer, greyer picture rather than a wrong one
     saturation: mix(1.05, 0.85, smoothstep(3, 6, gainStops)) * (1 - 0.85 * smoothstep(0, 0.8, state.wbExcess)),
-    shadowDesat: smoothstep(1, 3.5, gainStops),
+    shadowDesat: grain,
     spatial: 1,
     bypass: false,
   };
   return {
     state,
     render,
-    analysis: { sigmaDark: state.sigmaDark, sigmaBright: state.sigmaBright, maxAge: clamp(6 + 5 * Math.max(gainStops, 0), 6, 28) },
+    analysis: { sigmaDark: state.sigmaDark, sigmaBright: state.sigmaBright, maxAge: clamp(6 + Math.max(5 * gainStops, 18 * grain), 6, 28) },
+    shortfallStops,
   };
 }
