@@ -1,1 +1,15 @@
-{ "name": "@sunroom/desktop", "private": true, "version": "0.1.0", "main": "dist/main.cjs", "scripts": { "build": "node build.mjs", "start": "node build.mjs && electron ." }, "dependencies": { "koffi": "^2.9.0" }, "devDependencies": { "electron": "^33.0.0" } }
+{
+  "name": "@sunroom/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node build.mjs && electron .",
+    "test": "node test/pack.test.mjs && node test/sender.test.mjs",
+    "e2e": "node build.mjs && node test/e2e.mjs"
+  },
+  "dependencies": { "koffi": "^2.9.0" },
+  "devDependencies": { "electron": "^33.0.0" }
+}
