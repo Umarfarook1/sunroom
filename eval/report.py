@@ -94,9 +94,13 @@ def live():
         last = x['reason']
         rows += (f'<tr><td>{x["t"]:.0f} s</td><td>{x["cameraFps"]:.0f}</td><td>{x["exposureMode"]}</td><td>{x["gain"]}</td>'
                  f'<td>{fmt(x["faceLumaOut"], 0)}</td><td>{x["processMs"]:.0f} ms</td><td>{html.escape(reason or "")}</td></tr>')
-    first, final = s[3], s[-1]
-    return (f'<h2>Live on the real webcam</h2><p>Started from the camera as found. Frame rate went from <b>{first["cameraFps"]:.0f}</b> to '
-            f'<b>{final["cameraFps"]:.0f}</b> frames per second, enhanced output ran at {d["outFps"]:.0f} fps, about {final["processMs"]:.0f} ms of work per frame, '
+    # the first two seconds are the camera and the app starting up
+    first, final = next(x for x in s if x['t'] >= 2), s[-1]
+    took = next((x for x in s if x['mode'] == 'manual'), None)
+    story = (f'Sunroom took over the camera after {took["t"]:.0f} s ({html.escape(took["reason"] or "")}). ' if took else 'The camera was doing fine, so Sunroom left its controls alone. ')
+    return (f'<h2>Live on the real webcam</h2><p>Started from the camera as found. {story}Camera frame rate went from <b>{first["cameraFps"]:.0f}</b> to '
+            f'<b>{final["cameraFps"]:.0f}</b> frames per second, sensor gain from {first["gain"]} to {final["gain"]}, face brightness in the output from '
+            f'<b>{fmt(first["faceLumaOut"], 0)}</b> to <b>{fmt(final["faceLumaOut"], 0)}</b>. Enhanced output ran at {d["outFps"]:.0f} fps, about {final["processMs"]:.0f} ms of work per frame, '
             'and the camera settings were put back when the session stopped.</p>'
             f'<details><summary>What the camera control did, second by second</summary><table><thead><tr><th>Time</th><th>Camera fps</th><th>Exposure</th><th>Sensor gain</th>'
             f'<th>Face brightness out</th><th>Work per frame</th><th>Action</th></tr></thead><tbody>{rows}</tbody></table></details>')

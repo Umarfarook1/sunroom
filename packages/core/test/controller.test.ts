@@ -88,6 +88,16 @@ describe('control: colour', () => {
 });
 
 describe('control: stability', () => {
+  it('sets colour at once when the face is first found, and eases after that', () => {
+    const blue = { median: 0.2, rg: Math.log(1.0), bg: Math.log(1.0) };
+    const noFace = control(null, stats());
+    const found = control(noFace.state, stats({ face: blue }), 1 / 30);
+    expect(found.state.wbRG).toBeCloseTo(0.22 + 0.15, 5);
+    const moved = control(found.state, stats({ face: { ...blue, rg: Math.log(2.0) } }), 1 / 30);
+    expect(moved.state.wbRG).toBeGreaterThan(0.3);
+    expect(moved.state.wbRG).toBeLessThan(0.37);
+  });
+
   it('eases toward a new brightness instead of jumping', () => {
     const first = control(null, stats({ face: { median: 0.03, ...skin } }));
     const second = control(first.state, stats({ face: { median: 0.06, ...skin } }), 1 / 30);

@@ -27,13 +27,22 @@ general claims. Your camera may differ, which is why Sunroom measures instead of
 The director is a small state machine that watches the real frame rate and the scene brightness.
 Its policy is minimal intervention.
 
-- A camera that holds its frame rate is left alone.
+- A camera that holds its frame rate and lights the face is left alone.
 - When auto exposure stretches the shutter and the frame rate drops below three quarters of
   nominal for 1.5 seconds, the director switches the camera to manual exposure and pins the
   longest shutter that fits one frame period (1/32 s on a power-of-two UVC camera at 30 fps).
-- Light lost to the shorter shutter is made up with sensor gain, one step at a time, only while
-  highlights have headroom. A gain that clipped highlights is remembered and not retried for
-  30 seconds, which stops the loop from cycling.
+- A camera can also hold its frame rate and still leave the face dark, because its metering is
+  satisfied by a bright wall. When the face needs more than 2.5 stops of brightening, the shutter
+  is already at the longest value the frame rate allows and the highlights have room, the
+  director takes over in the same way. It does not when the shutter is short (a window behind
+  the person), because pinning it longer would blow out the picture.
+- In manual mode light comes from sensor gain, one step at a time, only while highlights have
+  headroom. A gain that clipped highlights is remembered and not retried for 30 seconds, which
+  stops the loop from cycling.
+- The frame rate is the camera's own. Chromium counts the frames a camera produced
+  (`MediaStreamTrack.stats`), so a slow computer is not mistaken for a slow camera. Where that
+  count is missing, arrival times are used and ignored while Sunroom itself is the busy part.
+  Nothing is judged in the first 2.5 seconds, while shaders compile and the detector loads.
 - Each gain step is checked. If the picture did not get brighter, the director stops using that
   control: on some systems the same browser property means something else.
 - A hand-fixed white balance is switched back to automatic. A negative black level that clips

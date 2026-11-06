@@ -2,7 +2,6 @@
 // Usage: node apps/web/test/e2e.mjs [clip.mjpeg]   (clip name from data/fake, default dim_exp-5_gain1.mjpeg)
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
@@ -13,25 +12,9 @@ const repo = path.resolve(here, '../../..');
 const shots = path.join(here, 'shots');
 fs.mkdirSync(shots, { recursive: true });
 
-// shortcut: the recorded clips carry zero bytes after each frame's end marker, which makes Chrome's
-// fake camera end at once; this writes a copy without them. Drop it once data/fake is regenerated clean.
-function chromeReadyClip(name) {
-  const src = path.join(repo, 'data/fake', name);
-  assert(fs.existsSync(src), `fake camera clip missing: ${src}`);
-  const b = fs.readFileSync(src);
-  const frames = [];
-  for (let i = b.indexOf(Buffer.from([0xff, 0xd8, 0xff])); i >= 0; ) {
-    const end = b.indexOf(Buffer.from([0xff, 0xd9]), i) + 2;
-    assert(end > 1, `unterminated frame at byte ${i} of ${name}`);
-    frames.push(b.subarray(i, end));
-    i = b.indexOf(Buffer.from([0xff, 0xd8, 0xff]), end);
-  }
-  const out = path.join(os.tmpdir(), 'sunroom-e2e', name);
-  fs.mkdirSync(path.dirname(out), { recursive: true });
-  fs.writeFileSync(out, Buffer.concat(frames));
-  return out;
-}
-const clip = chromeReadyClip(process.argv[2] ?? 'dim_exp-5_gain1.mjpeg');
+// a clip made by tools/make_fake_camera.mjs
+const clip = path.join(repo, 'data/fake', process.argv[2] ?? 'dim_exp-5_gain1.mjpeg');
+assert(fs.existsSync(clip), `fake camera clip missing: ${clip}`);
 
 await buildWeb();
 const server = await serveDist(0);

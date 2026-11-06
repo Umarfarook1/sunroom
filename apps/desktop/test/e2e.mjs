@@ -5,7 +5,6 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
-import os from 'node:os';
 import path from 'node:path';
 import { _electron } from 'playwright-core';
 
@@ -16,29 +15,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 assert.ok(fs.existsSync(clip), `no clip at ${clip}`);
 fs.mkdirSync(shots, { recursive: true });
 
-/**
- * Chromium's MJPEG file reader expects each frame to start right after the previous EOI. Webcam frames carry
- * padding after EOI, which ends the fake track after one frame, so play a copy with only SOI..EOI spans.
- */
-function repack(file) {
-  const d = fs.readFileSync(file);
-  const frames = [];
-  for (let p = 0; ; ) {
-    const s = d.indexOf(Buffer.from([0xff, 0xd8]), p);
-    const e = s < 0 ? -1 : d.indexOf(Buffer.from([0xff, 0xd9]), s);
-    if (e < 0) break;
-    frames.push(d.subarray(s, e + 2));
-    p = e + 2;
-  }
-  const out = path.join(os.tmpdir(), `sunroom-${path.basename(file)}`);
-  fs.writeFileSync(out, Buffer.concat(frames));
-  return out;
-}
-
 const app = await _electron.launch({
   executablePath: createRequire(import.meta.url)('electron'),
   args: [root],
-  env: { ...process.env, SUNROOM_FAKE_CAMERA: repack(clip) },
+  env: { ...process.env, SUNROOM_FAKE_CAMERA: clip },
 });
 const summary = {};
 try {

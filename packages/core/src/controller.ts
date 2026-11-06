@@ -48,6 +48,8 @@ export interface ControlState {
   wbExcess: number;
   sigmaDark: number;
   sigmaBright: number;
+  /** A face has been measured at least once. The first one sets colour at once; later changes ease in. */
+  faceSeen: boolean;
 }
 
 export interface Decision {
@@ -90,7 +92,7 @@ function goals(s: FrameStats, t: Tuning): { state: ControlState; shortfallStops:
     wbExcess = Math.hypot(needRG - wbRG, needBG - wbBG);
   }
   return {
-    state: { anchor, target, cHi, wbRG, wbBG, wbExcess, sigmaDark: Math.max(s.sigmaDark, 0.002), sigmaBright: Math.max(s.sigmaBright, 0.002) },
+    state: { anchor, target, cHi, wbRG, wbBG, wbExcess, sigmaDark: Math.max(s.sigmaDark, 0.002), sigmaBright: Math.max(s.sigmaBright, 0.002), faceSeen: !!s.face },
     shortfallStops: wanted - anchor,
   };
 }
@@ -105,16 +107,19 @@ export function control(prev: ControlState | null, s: FrameStats, dt: number, t:
   if (prev) {
     const k = 1 - Math.exp(-dt / t.settleSeconds);
     const kSlow = 1 - Math.exp(-dt / (t.settleSeconds * 3));
+    // the detector finds the face about a second into a call; easing colour in from there is seconds of wrong skin
+    const kColour = g.faceSeen && !prev.faceSeen ? 1 : kSlow;
     const ease = (from: number, to: number, rate: number, dead = 0) => (Math.abs(to - from) < dead ? from : from + (to - from) * rate);
     state = {
       anchor: ease(prev.anchor, g.anchor, k, 0.03),
       target: ease(prev.target, g.target, k),
       cHi: ease(prev.cHi, g.cHi, k),
-      wbRG: ease(prev.wbRG, g.wbRG, kSlow),
-      wbBG: ease(prev.wbBG, g.wbBG, kSlow),
-      wbExcess: ease(prev.wbExcess, g.wbExcess, kSlow),
+      wbRG: ease(prev.wbRG, g.wbRG, kColour),
+      wbBG: ease(prev.wbBG, g.wbBG, kColour),
+      wbExcess: ease(prev.wbExcess, g.wbExcess, kColour),
       sigmaDark: ease(prev.sigmaDark, g.sigmaDark, kSlow),
       sigmaBright: ease(prev.sigmaBright, g.sigmaBright, kSlow),
+      faceSeen: prev.faceSeen || g.faceSeen,
     };
   }
 

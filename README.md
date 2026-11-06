@@ -11,6 +11,9 @@ grainy, the wrong colour, or stuttering at half the frame rate.
 
 - **Holds the frame rate.** Many webcams silently halve their frame rate in dim light. Sunroom
   notices, takes over the camera's exposure, and makes up the light with sensor gain.
+- **Uses the camera's own gain before software.** When the face is far too dark and the camera
+  has gain to spare, Sunroom raises it, because light added at the sensor is cleaner than light
+  added afterwards.
 - **Lights the face, not the room.** Exposure is measured on your face. A bright wall or window
   behind you is folded down instead of deciding how dark you look.
 - **Cleans grain without smearing you.** Still background is averaged over many frames. Anything
@@ -24,11 +27,42 @@ How each part works, and why, is in [docs/how-it-works.md](docs/how-it-works.md)
 ## Results
 
 <!-- results:start -->
+Scored on 6 clips of the same scene recorded from a 720p laptop webcam in a badly lit room, each
+under a different camera state: as found, frame rate held, dim, dark with gain at maximum, and a
+wrong white balance. Every clip is replayed through the real shaders on the laptop's own Intel
+graphics and compared with a well-exposed recording of the same scene. Sunroom finds the face
+with its own detector.
+
+| Measure | Untouched camera | Simple brightening | Sunroom |
+|---|---:|---:|---:|
+| Face brightness (0 to 255, healthy is 95 to 150) | 39 | 114 | 104 |
+| Face contrast against grain, higher is better | 26.1 | 27.9 | 51.1 |
+| Noise in dark areas (grey levels), lower is better | 2.71 | 6.94 | 2.20 |
+| Flicker banding (% of brightness), lower is better | 0.34 | 0.10 | 0.07 |
+| Skin colour error, lower is better | 3.4 | 8.4 | 2.9 |
+| Shirt colour error, lower is better | 7.5 | 26.7 | 4.8 |
+| Wall colour error, lower is better | 5.7 | 3.8 | 6.2 |
+
+"Simple brightening" is a gamma curve that puts the face at the same brightness, which is what a
+brightness slider does. It gets the face bright by lifting everything, noise included: dark
+areas come out 3.2 times noisier than with Sunroom, and colours wash out.
+
+- **Speed.** About 12 ms per 720p frame on Intel UHD integrated graphics, 16 to 20 ms at the 95th
+  percentile, so 30 fps fits with room to spare.
+- **Live on the real webcam.** From the camera as found, Sunroom took over after 4 seconds,
+  raised sensor gain from 1 to 6, kept 30 fps, and brought the face from 70 to about 106. The
+  camera's settings were put back when it stopped.
+- **Where it loses.** The wall keeps more tint than simple brightening leaves, because colour is
+  corrected from skin, not from the whole picture. In the darkest clip the face reaches 66, short
+  of healthy. Three harder clips (shadows clipped by the camera, nearly black, an extreme blue
+  cast) are not in the averages: software cannot rebuild what the sensor did not record.
+
+One camera, one room, one person. The harness is in `eval/` so you can score your own.
 <!-- results:end -->
 
 ## Try it
 
-Requires Node 20 or later and a Chromium browser (Chrome or Edge).
+Requires Node 20 or later and Chrome or another Chromium browser.
 
 ```sh
 git clone <this repository>
@@ -49,7 +83,7 @@ npm run build -w apps/extension
 ```
 
 Then open `chrome://extensions`, turn on Developer mode, choose **Load unpacked**, and select
-`apps/extension/dist`.
+`apps/extension/dist`. The popup has three switches: everywhere, this site, and camera control.
 
 ### Desktop app
 
@@ -59,11 +93,33 @@ The desktop app is for native apps such as Zoom or Teams, which need a system ca
 npm run desktop
 ```
 
-See [Status](#status) for what works today.
+The app does not install a camera by itself. On Windows it feeds the
+[UnityCapture](https://github.com/schellingb/UnityCapture) filter, which you register once. See
+[apps/desktop/PLATFORMS.md](apps/desktop/PLATFORMS.md) for the steps and for Linux and macOS, and
+[Status](#status) for what works today.
 
 ## Status
 
 <!-- status:start -->
+Developed and measured on one laptop: Windows 10, Intel UHD graphics, a 720p Sonix webcam.
+
+| Part | State | How it was checked |
+|---|---|---|
+| Enhancement engine | Works | Unit tests, and scored on recorded clips (see Results) |
+| Camera control | Works on the one webcam tried | Live runs in Chrome on Windows 10: frame rate held at 30 fps, sensor gain raised in the dark, camera settings put back on stop |
+| Web app | Works | 16 end-to-end checks on Chrome's fake camera, plus live runs on the real webcam |
+| Browser extension | Works in tests | 13 end-to-end checks in Chromium, including a page with a strict content security policy, a cross-origin iframe, a background tab and a machine without WebGL2. Not yet tried on Google Meet, Zoom or Teams |
+| Desktop app on Windows | Sends frames. Camera not registered | End-to-end into a simulated camera filter at 30 fps, and a live run on the real webcam. Not yet tried with the real filter inside Zoom or Teams. Registering the filter for one user without admin rights is unproven |
+| Desktop app on Linux and macOS | Not built | The researched route for each is in `apps/desktop/PLATFORMS.md` |
+| Windows 11, macOS, Linux (web app and extension) | Not tried | Nothing in them is specific to Windows 10. Camera control needs Chromium |
+| Firefox and Safari | Not tried | They expose no camera controls, so only the picture enhancement can apply |
+
+If enhancement fails while a call is running, the call keeps the camera's own picture. That is
+tested by killing the graphics context mid-stream (`eval/failsafe.mjs`).
+
+While it is steering the camera, Sunroom keeps a small note in the site's local storage
+(`sunroom.camera.<id>`) with the camera's original gain and brightness, so it can put them back
+if the tab is closed mid-call. The note is removed when the settings are restored.
 <!-- status:end -->
 
 ## Privacy
@@ -75,9 +131,16 @@ switches) and access to pages (to hand the enhanced camera to the sites you use)
 ## Development
 
 ```sh
-npm test            # unit tests for the metering, control and camera-control rules
+npm test                              # unit tests: metering, control, camera control, frame packing
 npm run typecheck
+node apps/web/test/e2e.mjs            # web app on Chrome's fake camera
+node apps/extension/test/e2e.mjs      # extension, needs a Chromium that loads unpacked extensions
+npm run e2e -w apps/desktop           # desktop app into a simulated camera filter (Windows)
+node eval/failsafe.mjs <clip.mjpeg>   # kills the GPU context mid-stream: video must keep flowing
 ```
+
+The end-to-end tests play a recorded clip through the browser's fake camera. Make one from any
+recording with `node tools/make_fake_camera.mjs <clip> data/fake/<name>.mjpeg`.
 
 Picture quality is scored, not guessed. The `eval/` folder replays recorded camera frames
 through the real shaders in Chrome and scores the result against a well-exposed recording of the
