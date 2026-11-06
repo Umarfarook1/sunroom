@@ -22,6 +22,8 @@ export interface Tuning {
   maxWbShift: number;
   /** 0..1: extra shadow lift on the face, a soft fill light. */
   faceFill: number;
+  /** Seconds over which what was learned from a face fades once the face is out of view. */
+  faceMemorySeconds: number;
 }
 
 export const DEFAULT_TUNING: Tuning = {
@@ -35,6 +37,7 @@ export const DEFAULT_TUNING: Tuning = {
   skinBG: [-1.2, -0.1],
   maxWbShift: 1.1,
   faceFill: 0.3,
+  faceMemorySeconds: 60,
 };
 
 /** Smoothed decisions carried between frames. */
@@ -50,6 +53,10 @@ export interface ControlState {
   sigmaBright: number;
   /** A face has been measured at least once. The first one sets colour at once; later changes ease in. */
   faceSeen: boolean;
+  /** Stops between the face and the scene average, as last measured; null until a face has been measured. */
+  faceOffset: number | null;
+  /** 1 while a face is in view; fades to 0 once it is not, and metering goes back to the whole scene with it. */
+  faceTrust: number;
 }
 
 export interface Decision {
@@ -68,11 +75,16 @@ const smoothstep = (a: number, b: number, x: number) => {
 };
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 
-function goals(s: FrameStats, t: Tuning): { state: ControlState; shortfallStops: number } {
-  const anchor = s.face ? Math.log2(s.face.median + 1e-5) : s.logAvg;
+function goals(s: FrameStats, t: Tuning, memory: Pick<ControlState, 'faceOffset' | 'faceTrust'> | null): { state: ControlState; shortfallStops: number } {
+  // A face out of view for a moment (looking down, a hand in front) is metered where it was against the
+  // scene. Metering the whole scene instead moves the picture by stops each time the detector loses it.
+  const faceOffset = s.face ? Math.log2(s.face.median + 1e-5) - s.logAvg : (memory?.faceOffset ?? null);
+  const faceTrust = s.face ? 1 : faceOffset === null ? 0 : memory!.faceTrust;
+  const faceLog = s.logAvg + (faceOffset ?? 0);
+  const anchor = mix(s.logAvg, faceLog, faceTrust);
   // a face already in a healthy range keeps its brightness: skin tones differ, and all are right
-  const targetLin = s.face ? clamp(s.face.median, t.faceBand[0], t.faceBand[1]) : t.sceneTarget;
-  const wanted = Math.log2(targetLin);
+  const faceWanted = Math.log2(clamp(s.face ? s.face.median : 2 ** faceLog, t.faceBand[0], t.faceBand[1]));
+  const wanted = mix(Math.log2(t.sceneTarget), faceWanted, faceTrust);
   const target = Math.min(wanted, anchor + t.maxGainStops);
 
   const xHi = Math.log2(s.p98 + 1e-5) - anchor;
@@ -92,7 +104,7 @@ function goals(s: FrameStats, t: Tuning): { state: ControlState; shortfallStops:
     wbExcess = Math.hypot(needRG - wbRG, needBG - wbBG);
   }
   return {
-    state: { anchor, target, cHi, wbRG, wbBG, wbExcess, sigmaDark: Math.max(s.sigmaDark, 0.002), sigmaBright: Math.max(s.sigmaBright, 0.002), faceSeen: !!s.face },
+    state: { anchor, target, cHi, wbRG, wbBG, wbExcess, sigmaDark: Math.max(s.sigmaDark, 0.002), sigmaBright: Math.max(s.sigmaBright, 0.002), faceSeen: !!s.face, faceOffset, faceTrust },
     shortfallStops: wanted - anchor,
   };
 }
@@ -102,13 +114,15 @@ function goals(s: FrameStats, t: Tuning): { state: ControlState; shortfallStops:
  * @param dt seconds since the previous frame
  */
 export function control(prev: ControlState | null, s: FrameStats, dt: number, t: Tuning = DEFAULT_TUNING): Decision {
-  const { state: g, shortfallStops } = goals(s, t);
+  const { state: g, shortfallStops } = goals(s, t, prev);
   let state = g;
   if (prev) {
     const k = 1 - Math.exp(-dt / t.settleSeconds);
     const kSlow = 1 - Math.exp(-dt / (t.settleSeconds * 3));
     // the detector finds the face about a second into a call; easing colour in from there is seconds of wrong skin
-    const kColour = g.faceSeen && !prev.faceSeen ? 1 : kSlow;
+    // without a face in view the colour found from skin and the face's place against the scene fade slowly
+    const kMemory = 1 - Math.exp(-dt / t.faceMemorySeconds);
+    const kColour = !g.faceSeen ? kMemory : !prev.faceSeen ? 1 : kSlow;
     const ease = (from: number, to: number, rate: number, dead = 0) => (Math.abs(to - from) < dead ? from : from + (to - from) * rate);
     state = {
       anchor: ease(prev.anchor, g.anchor, k, 0.03),
@@ -120,6 +134,8 @@ export function control(prev: ControlState | null, s: FrameStats, dt: number, t:
       sigmaDark: ease(prev.sigmaDark, g.sigmaDark, kSlow),
       sigmaBright: ease(prev.sigmaBright, g.sigmaBright, kSlow),
       faceSeen: prev.faceSeen || g.faceSeen,
+      faceOffset: g.faceSeen && g.faceOffset !== null && prev.faceOffset !== null ? ease(prev.faceOffset, g.faceOffset, kSlow) : g.faceOffset,
+      faceTrust: g.faceSeen ? 1 : g.faceTrust * (1 - kMemory),
     };
   }
 

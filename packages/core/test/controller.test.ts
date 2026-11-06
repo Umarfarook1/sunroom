@@ -127,3 +127,44 @@ describe('control: stability', () => {
     expect(clean.render.shadowDesat).toBe(0);
   });
 });
+
+describe('control: a face that goes out of view', () => {
+  // a face two stops darker than the wall behind it, under a light that turns skin grey-blue
+  const room = Math.log2(0.12);
+  const seen = stats({ logAvg: room, face: { median: 0.03, rg: Math.log(1.0), bg: Math.log(0.9) } });
+  const lost = stats({ logAvg: room });
+  const run = (d: ReturnType<typeof control>, s: FrameStats, seconds: number) => {
+    for (let i = 0; i < seconds * 30; i++) d = control(d.state, s, 1 / 30);
+    return d;
+  };
+  const settled = () => run(control(null, seen), seen, 5);
+
+  it('keeps the brightening and the camera request it had when the face is lost for a few seconds', () => {
+    const before = settled();
+    const after = run(before, lost, 3);
+    expect(before.render.target - before.render.anchor).toBeGreaterThan(2);
+    expect(Math.abs(after.render.target - after.render.anchor - (before.render.target - before.render.anchor))).toBeLessThan(0.2);
+    expect(Math.abs(after.shortfallStops - before.shortfallStops)).toBeLessThan(0.2);
+  });
+
+  it('keeps the colour it found from the skin', () => {
+    const before = settled();
+    const after = run(before, lost, 3);
+    expect(Math.abs(before.state.wbRG)).toBeGreaterThan(0.2);
+    expect(after.state.wbRG).toBeCloseTo(before.state.wbRG, 1);
+    expect(after.state.wbBG).toBeCloseTo(before.state.wbBG, 1);
+  });
+
+  it('still follows the room when the light drops while the face is out of view', () => {
+    const before = settled();
+    const after = run(before, stats({ logAvg: room - 1 }), 3);
+    expect(after.shortfallStops - before.shortfallStops).toBeGreaterThan(0.8);
+  });
+
+  it('goes back to metering the whole scene after minutes without a face', () => {
+    const after = run(settled(), lost, 300);
+    const scene = control(null, lost);
+    expect(after.render.target - after.render.anchor).toBeCloseTo(scene.render.target - scene.render.anchor, 1);
+    expect(after.state.wbRG).toBeCloseTo(0, 1);
+  });
+});

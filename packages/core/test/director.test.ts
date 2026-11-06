@@ -113,6 +113,18 @@ describe('direct', () => {
     expect(d.command).toEqual({ exposureCompensation: 3 });
   });
 
+  it('takes two gain steps at once while the face is very dark and highlights are far from clipping', () => {
+    let d = direct(inManual(), caps, manual, input({ nowMs: 5000, shortfallStops: 5.8, p98: 0.15 }));
+    expect(d.command).toEqual({ exposureCompensation: 3 });
+    d = direct(d.state, caps, { ...manual, gain: 3 }, input({ nowMs: 7000, shortfallStops: 4.1, p98: 0.33 }));
+    expect(d.command).toEqual({ exposureCompensation: 5 });
+    d = direct(d.state, caps, { ...manual, gain: 5 }, input({ nowMs: 9000, shortfallStops: 2.9, p98: 0.55 }));
+    expect(d.command).toEqual({ exposureCompensation: 6 });
+    // never past the camera's maximum
+    d = direct(inManual(), caps, { ...manual, gain: 7 }, input({ nowMs: 5000, shortfallStops: 4, p98: 0.2 }));
+    expect(d.command).toEqual({ exposureCompensation: 8 });
+  });
+
   it('does not raise gain into clipping highlights', () => {
     const d = direct(inManual(), caps, { ...manual, gain: 2 }, input({ nowMs: 5000, shortfallStops: 2.4, p98: 0.85 }));
     expect(d.command).toBeNull();

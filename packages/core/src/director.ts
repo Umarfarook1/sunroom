@@ -240,9 +240,11 @@ export function direct(state: DirectorState, caps: CameraCaps, settings: CameraS
   }
   const ceiling = state.gainCeiling !== null && input.nowMs < state.ceilingUntilMs ? state.gainCeiling : Infinity;
   if (dark && gain && g !== undefined && g < gain.max && g + gain.step < ceiling && state.gainWorks) {
+    // far from enough light and far from clipping: two steps at once, so a dark start is over sooner
+    const steps = input.shortfallStops > 3 && input.p98 < 0.4 && ceiling === Infinity ? 2 : 1;
     return sent(
       { ...state, sinceMs: null, gainProbe: { shortfallBefore: input.shortfallStops } },
-      { exposureCompensation: Math.min(gain.max, g + gain.step) },
+      { exposureCompensation: Math.min(gain.max, g + steps * gain.step) },
       'scene is dark; raising sensor gain',
     );
   }

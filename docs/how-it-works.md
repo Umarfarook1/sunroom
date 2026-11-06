@@ -95,6 +95,10 @@ square-root encoding, where camera noise is close to uniform across brightness.
      inside the band keeps its brightness. Skin tones differ and Sunroom does not push every
      face to one value.
    - Brightening is capped at 5 stops. Past that the result is noise.
+   - When the face goes out of view (looking down, a hand in front), Sunroom keeps metering
+     where the face was against the room, and keeps the colour it found from the skin. This
+     memory fades over about a minute. Without it the picture jumps by stops each time the
+     detector loses the face.
    - Highlights that would clip after the lift are compressed instead.
    - White balance is corrected only when skin falls outside a wide plausible range, and then by
      the smallest amount that brings it back. A cast too strong to correct is shown as a calmer,
