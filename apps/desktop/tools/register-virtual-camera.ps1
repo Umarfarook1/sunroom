@@ -41,6 +41,10 @@ param(
 # then cannot load its own commands. No command may run before this line.
 if ($PSVersionTable.PSEdition -ne 'Core') { $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine') }
 $ErrorActionPreference = 'Stop'
+# A 32-bit PowerShell on 64-bit Windows sees another view of these registry keys and would write or remove the wrong ones.
+if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+  throw 'Run this from 64-bit PowerShell (from a 32-bit program: %WINDIR%\Sysnative\WindowsPowerShell\v1.0\powershell.exe).'
+}
 if ($Install -eq $Uninstall) {
   Write-Host 'Pass exactly one of -Install or -Uninstall.'
   exit 2
