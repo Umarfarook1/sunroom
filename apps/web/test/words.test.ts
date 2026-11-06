@@ -6,6 +6,7 @@ const face = { x: 0.4, y: 0.3, w: 0.2, h: 0.3 };
 const status = (o: { lift?: number; wbRG?: number; wbExcess?: number; face?: boolean; manual?: boolean; fps?: number; frame?: boolean } = {}) =>
   ({
     cameraFps: o.fps ?? 30,
+    outputFps: o.fps ?? 30,
     face: o.face === false ? null : face,
     director: { mode: o.manual ? 'manual' : 'observe', lastReason: null, lastCommand: null },
     frame:

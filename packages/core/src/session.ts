@@ -6,6 +6,9 @@ import { Enhancer, type EnhancerOptions, type FrameReport } from './enhancer';
 import { type FaceTracker, FaceSmoother } from './face';
 import type { FaceBox } from './meter';
 
+/** How long after the first frame the director waits before it judges the camera. */
+const WARM_UP_MS = 2500;
+
 export interface SessionOptions extends EnhancerOptions {
   /** Supplies face positions for metering. Without one, metering is centre-weighted. The caller owns and closes it. */
   faceTracker?: FaceTracker | null;
@@ -18,8 +21,10 @@ export interface SessionOptions extends EnhancerOptions {
 }
 
 export interface SessionStatus {
-  /** Real frames per second arriving from the camera. */
+  /** Frames per second the camera itself produces, from the browser's own frame count where it keeps one. */
   cameraFps: number;
+  /** Enhanced frames per second leaving the session. Well below cameraFps, this device cannot keep up. */
+  outputFps: number;
   /** Milliseconds spent enhancing the last frame. */
   processMs: number;
   /** Share of the last second spent enhancing, 0..1. Above about 0.7 the device cannot keep up. */
@@ -94,6 +99,8 @@ export class CameraSession {
   private directorOn: boolean;
   private stopped = false;
   private arrivals: number[] = [];
+  private firstFrameMs = 0;
+  private readonly counted = { atMs: 0, total: 0, fps: null as number | null };
   private work: number[] = [];
   private lastFaceMs = -1e9;
   private faceBusy = false;
@@ -108,6 +115,7 @@ export class CameraSession {
     this.directorOn = opts.director ?? true;
     this.status = {
       cameraFps: 0,
+      outputFps: 0,
       processMs: 0,
       busy: 0,
       width: 0,
@@ -275,12 +283,30 @@ export class CameraSession {
     const s = this.status;
     s.processMs = now - t0;
     s.busy = span > 200 ? Math.min(1, this.work.slice(1).reduce((a, b) => a + b, 0) / span) : s.busy;
-    s.cameraFps = span > 200 ? ((this.arrivals.length - 1) * 1000) / span : s.cameraFps;
+    s.outputFps = span > 200 ? ((this.arrivals.length - 1) * 1000) / span : s.outputFps;
+    s.cameraFps = this.cameraRate(now) ?? s.outputFps;
     s.width = w;
     s.height = h;
     s.frame = frame;
     this.trackFace(w, h, now);
-    if (this.directorOn && span > 900) this.runDirector(frame, now);
+    this.firstFrameMs ||= now;
+    // a cold start (shaders compiling, the detector loading) is slow in ways that say nothing about the camera
+    if (this.directorOn && span > 900 && now - this.firstFrameMs > WARM_UP_MS) this.runDirector(frame, now);
+  }
+
+  /**
+   * The camera's rate from the browser's count of frames it produced (Chrome's MediaStreamTrack.stats).
+   * Unlike arrival times it does not fall when we are the slow part. Null where the browser keeps no count.
+   */
+  private cameraRate(now: number): number | null {
+    const c = this.counted;
+    if (c.atMs && now - c.atMs < 1000) return c.fps;
+    const total = (this.camera as MediaStreamTrack & { stats?: { totalFrames: number } }).stats?.totalFrames;
+    if (total === undefined) return null;
+    if (c.atMs) c.fps = ((total - c.total) * 1000) / (now - c.atMs);
+    c.atMs = now;
+    c.total = total;
+    return c.fps;
   }
 
   private trackFace(w: number, h: number, now: number): void {
@@ -308,7 +334,8 @@ export class CameraSession {
       nowMs: now,
       fps: this.status.cameraFps,
       nominalFps,
-      busy: this.status.busy,
+      // a rate counted by the browser cannot be dragged down by our own load
+      busy: this.counted.fps === null ? this.status.busy : 0,
       shortfallStops: frame.decision.shortfallStops,
       p98: frame.stats.p98,
       p02: frame.stats.p02,
