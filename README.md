@@ -162,6 +162,32 @@ Apps then list it as "Sunroom Camera". See
 [apps/desktop/PLATFORMS.md](apps/desktop/PLATFORMS.md) for the steps and for Linux and macOS, and
 [Status](#status) for what works today.
 
+### Install on Windows
+
+The desktop app has an installer for 64-bit Windows. It installs for your user only and does not
+ask for admin rights.
+
+1. Get the installer. GitHub builds it on every push to `main`. Open the
+   [windows-installer workflow](https://github.com/Umarfarook1/sunroom/actions/workflows/windows-installer.yml),
+   open the latest run with a green tick, and download `sunroom-setup-windows-x64` under
+   Artifacts. You need to be signed in to GitHub. The download is a zip with
+   `Sunroom Setup 0.1.0.exe` inside. To build it yourself instead, run `npm ci` and then
+   `npm run dist -w apps/desktop` in a clone. The installer is then in `apps/desktop/release`.
+2. Run `Sunroom Setup 0.1.0.exe`. The installer is not signed, so Windows SmartScreen warns
+   that it comes from an unknown publisher. Choose **More info**, then **Run anyway**. Sunroom
+   installs into `%LOCALAPPDATA%\Programs\sunroom` and adds a Sunroom shortcut to the Start menu
+   and the desktop.
+3. To use Sunroom in Zoom, Teams or another native app, register the virtual camera once.
+   Download `UnityCaptureFilter64.dll` and `UnityCaptureFilter32.dll` from the
+   [UnityCapture Install folder](https://github.com/schellingb/UnityCapture/tree/master/Install)
+   into `%LOCALAPPDATA%\sunroom\vcam`. Then copy the command from the status line at the bottom
+   of the Sunroom window and run it. The script lists every registry value it will write, all
+   for your user only, and asks before it writes them.
+
+To remove Sunroom, uninstall "Sunroom 0.1.0" in Settings, Apps. Uninstalling does not remove the
+camera registration, so if you registered it, first run the same command with `-Uninstall`
+instead of `-Install`.
+
 ## Status
 
 <!-- status:start -->
@@ -174,6 +200,7 @@ Developed and measured on one laptop: Windows 10, Intel UHD graphics, a 720p Son
 | Web app | Works | 16 end-to-end checks on Chrome's fake camera, plus live runs on the real webcam |
 | Browser extension | Works in tests | 14 end-to-end checks in Chromium, including a page with a strict content security policy, a cross-origin iframe, a background tab and a machine without WebGL2. On the real webcam it steered the camera and put the settings back, both on stop and when the tab was closed. On real pages (fake camera, nothing sent out): a WebRTC peer-connection call where the far end shows the enhanced picture, the Jitsi Meet pre-join screen, and webcamtests.com. Not yet tried on Google Meet, Zoom or Teams, which need a login |
 | Desktop app on Windows | Works with the real virtual camera | Registered for one user without admin rights, then the whole chain on real hardware: webcam, Sunroom, "Sunroom Camera", read by ffmpeg through DirectShow and by Chrome through `getUserMedia` at 1280x720 and 29 fps. The real filter returns a test picture pixel for pixel, upright and in order. Not yet tried inside Zoom or Teams themselves |
+| Windows installer | Works on GitHub's Windows machine | Every push to `main` builds the installer, installs it silently for the current user, starts the installed app on a synthetic 1280x720 clip and checks that it shows the web UI, enhances without errors, loads its virtual camera code and has its register script in the install folder, then uninstalls it silently and checks the folder and the Apps entry are gone. That machine is Windows build 26100 and has no GPU, so the app runs there at about 3 fps. The installer has not been run on Windows 10 or on a PC with a webcam; the unpacked app passes the same check on the Windows 10 laptop |
 | Desktop app on Linux | Parked, not working yet | A virtual camera through v4l2loopback and ffmpeg is written and its pipe is tested. It has not passed a test on a real Linux device. Windows is being finished first |
 | Desktop app on macOS | Not built | The researched route is in `apps/desktop/PLATFORMS.md` |
 | Linux, macOS and the Windows 11 family (engine and extension) | Works on GitHub's test machines | Every push runs the unit tests and `eval/smoke.mjs` on Linux x64, macOS on Apple silicon and Windows build 26100 (the Windows 11 24H2 family, server edition): a dark synthetic clip goes from brightness 22 to 105 through the engine, and a plain page gets the enhanced camera from the extension. Those machines have no webcam, so camera control stays tried on Windows 10 only; on Linux Chrome exposes no sensor gain, so only the frame-rate hold could apply there |
