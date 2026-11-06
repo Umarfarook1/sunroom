@@ -116,10 +116,10 @@ Developed and measured on one laptop: Windows 10, Intel UHD graphics, a 720p Son
 | Enhancement engine | Works | Unit tests, and scored on recorded clips (see Results) |
 | Camera control | Works on the one webcam tried | Live runs in Chrome on Windows 10: frame rate held at 30 fps, sensor gain raised in the dark, gain put back and exposure returned to automatic on stop |
 | Web app | Works | 16 end-to-end checks on Chrome's fake camera, plus live runs on the real webcam |
-| Browser extension | Works in tests | 13 end-to-end checks in Chromium, including a page with a strict content security policy, a cross-origin iframe, a background tab and a machine without WebGL2. On the real webcam it steered the camera and put the settings back, both on stop and when the tab was closed. Not yet tried on Google Meet, Zoom or Teams |
+| Browser extension | Works in tests | 13 end-to-end checks in Chromium, including a page with a strict content security policy, a cross-origin iframe, a background tab and a machine without WebGL2. On the real webcam it steered the camera and put the settings back, both on stop and when the tab was closed. On real pages (fake camera, nothing sent out): a WebRTC peer-connection call where the far end shows the enhanced picture, the Jitsi Meet pre-join screen, and webcamtests.com. Not yet tried on Google Meet, Zoom or Teams, which need a login |
 | Desktop app on Windows | Works with the real virtual camera | Registered for one user without admin rights, then the whole chain on real hardware: webcam, Sunroom, "Sunroom Camera", read by ffmpeg through DirectShow and by Chrome through `getUserMedia` at 1280x720 and 29 fps. The real filter returns a test picture pixel for pixel, upright and in order. Not yet tried inside Zoom or Teams themselves |
 | Desktop app on Linux and macOS | Not built | The researched route for each is in `apps/desktop/PLATFORMS.md` |
-| Windows 11, macOS, Linux (web app and extension) | Not tried | The picture enhancement uses nothing specific to Windows. Camera control was only tried in Chrome on Windows; on Linux Chrome exposes no sensor gain, so only the frame-rate hold could apply there |
+| Linux, macOS and the Windows 11 family (engine and extension) | Works on GitHub's test machines | Every push runs the unit tests and `eval/smoke.mjs` on Linux x64, macOS on Apple silicon and Windows build 26100 (the Windows 11 24H2 family, server edition): a dark synthetic clip goes from brightness 22 to 105 through the engine, and a plain page gets the enhanced camera from the extension. Those machines have no webcam, so camera control stays tried on Windows 10 only; on Linux Chrome exposes no sensor gain, so only the frame-rate hold could apply there |
 | Firefox and Safari | Not tried | They expose no camera controls, so only the picture enhancement can apply |
 
 If enhancement fails while a call is running, the call keeps the camera's own picture. That is
@@ -145,6 +145,8 @@ node apps/web/test/e2e.mjs            # web app on Chrome's fake camera
 node apps/extension/test/e2e.mjs      # extension, needs a Chromium that loads unpacked extensions
 npm run e2e -w apps/desktop           # desktop app into a simulated camera filter (Windows)
 node eval/failsafe.mjs <clip.mjpeg>   # kills the GPU context mid-stream: video must keep flowing
+node eval/smoke.mjs <clip>            # engine and extension on any OS, no GPU needed (this is what CI runs)
+node eval/real-sites.mjs              # extension on real camera pages: a WebRTC call, Jitsi pre-join, a webcam test site
 ```
 
 The end-to-end tests play a recorded clip through the browser's fake camera. Make one from any
@@ -190,6 +192,9 @@ Layout:
   first.
 - On pages whose security policy blocks WebAssembly, the face detector cannot load and Sunroom
   meters the centre of the picture instead, which lights a face less well.
+- Sunroom needs a GPU, any integrated one will do. On a machine with none the browser renders
+  in software and manages about 10 frames per second at 640x360 (measured on GitHub's Linux and
+  Windows machines), which is too slow for a call.
 - The desktop app keeps the camera open, and its light on, for as long as the app runs, also
   when the window is closed to the tray. Quit it from the tray to release the camera.
 - No browser exposes the camera's anti-flicker setting, so flicker is removed in software.
