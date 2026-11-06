@@ -31,7 +31,10 @@ export interface SessionStatus {
   director: { mode: DirectorState['mode']; lastReason: string | null; lastCommand: Command | null };
   /** How frames are pumped: 'streams' survives background tabs, 'canvas' is the fallback. */
   transport: 'streams' | 'canvas';
-  /** Set when enhancing stopped because of a failure; the enhanced track has ended. */
+  /**
+   * Set when enhancing failed. On the streams transport the track keeps running and carries the
+   * camera's frames untouched, so a call never loses video; on the canvas transport it ends.
+   */
   error: string | null;
 }
 
@@ -199,10 +202,11 @@ export class CameraSession {
   }
 
   private fail(why: string): void {
-    if (this.stopped) return;
+    if (this.stopped || this.status.error) return;
     this.status.error = why;
     console.error('[sunroom] enhancing stopped:', why);
-    void this.stop();
+    void this.restoreCamera();
+    if (this.status.transport === 'canvas') void this.stop();
   }
 
   private pumpStreams(): MediaStreamTrack {
@@ -215,15 +219,22 @@ export class CameraSession {
         while (!this.stopped) {
           const { value: frame, done } = await reader.read();
           if (done || !frame) break;
-          const ts = frame.timestamp;
-          this.step(frame, frame.displayWidth, frame.displayHeight, ts / 1000);
-          frame.close();
-          const out = new VideoFrame(this.canvas, { timestamp: ts, alpha: 'discard' });
+          let out: VideoFrame = frame;
+          if (!this.status.error) {
+            try {
+              this.step(frame, frame.displayWidth, frame.displayHeight, frame.timestamp / 1000);
+              out = new VideoFrame(this.canvas, { timestamp: frame.timestamp, alpha: 'discard' });
+            } catch (err) {
+              // an unenhanced call beats a frozen one: from here on the camera's frames pass straight through
+              this.fail(err instanceof Error ? err.message : String(err));
+            }
+          }
+          if (out !== frame) frame.close();
           await writer.write(out);
           out.close();
         }
       } catch (err) {
-        this.fail(err instanceof Error ? err.message : String(err));
+        if (!this.stopped) console.error('[sunroom] frame pump stopped', err);
       } finally {
         reader.releaseLock();
         writer.close().catch(() => {});

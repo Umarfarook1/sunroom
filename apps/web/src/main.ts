@@ -149,12 +149,19 @@ function advancedRows(s: SessionStatus): [string, string][] {
     ['Camera exposure', !ui.director.checked ? 'Left to the camera' : s.director.mode === 'manual' ? 'Set by Sunroom' : 'Camera automatic, watched'],
     ['Last camera change', s.director.lastReason ?? 'None yet'],
     ['Frame path', s.transport === 'streams' ? 'Insertable streams' : 'Canvas'],
+    ['Load', `${Math.round(s.busy * 100)}% of each second spent enhancing`],
   ];
 }
 
 function tick(): void {
   if (!session) return;
   const s = session.status;
+  if (s.error) {
+    // the enhanced track has ended; the original camera underneath is still playing
+    session = null;
+    window.__sunroom = { session: null };
+    return show({ kind: 'untouched', why: `Enhancing stopped (${s.error}). This is the picture your camera gives.` });
+  }
   if (s.director.mode === 'observe') droppedTo = s.cameraFps;
   ui.status.textContent = statusLine(s, { enabled: session.enabled, director: session.director, droppedTo });
   ui.fps.textContent = `Camera ${Math.round(s.cameraFps)} fps`;
