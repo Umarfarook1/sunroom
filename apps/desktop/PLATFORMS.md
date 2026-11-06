@@ -4,8 +4,8 @@ The desktop app feeds a system camera that native apps (Zoom, Teams, Discord, OB
 
 | Platform | Status |
 |---|---|
-| Windows 10 and 11 | Sender implemented and tested against a simulated filter. Not yet tested with the real filter inside a real app. |
-| Linux | Sender implemented. Its ffmpeg pipe is tested on Windows with a file in place of the device. The device test is written but has not run on Linux yet. |
+| Windows 10 and 11 | Works on the one Windows 10 laptop tried, registered per user without admin rights. ffmpeg (DirectShow) and Chrome list and read "Sunroom Camera". Not yet tried inside Zoom or Teams, or on Windows 11. |
+| Linux | Parked until Windows is finished. Sender implemented and its ffmpeg pipe tested. On GitHub's Ubuntu machine the v4l2loopback module builds and loads, but the device test has not passed yet. |
 | macOS | Not implemented. |
 
 Research behind every row: `research/02-platform-plumbing.md`, sections 1 to 5.
@@ -16,7 +16,7 @@ Sunroom Camera is the UnityCapture DirectShow filter (MIT). Sunroom writes frame
 
 The filter must be registered once before apps can list it:
 
-- Per user, no admin: `tools/register-virtual-camera.ps1 -Install`. **Unverified.** No source confirms that apps list a DirectShow capture filter registered only under HKCU. Apps run as administrator never will.
+- Per user, no admin: `tools/register-virtual-camera.ps1 -Install`. Tried on one Windows 10 laptop: ffmpeg and Chrome list and read the camera. Apps run as administrator will not see it.
 - Machine-wide, admin once: `regsvr32 UnityCaptureFilter64.dll` (and the 32-bit DLL for 32-bit apps). This is the route every other DirectShow virtual camera uses. The camera then shows as "Unity Video Capture".
 
 Either way the filter DLL is loaded into every app that opens the camera. The per-user script
@@ -34,6 +34,7 @@ Checks:
 
 - `npm test -w apps/desktop` runs the frame packing test and the sender against `test/receiver-sim.mjs`, a stand-in for the filter in a separate process. It also runs the Linux pipe test below.
 - `npm run e2e -w apps/desktop` runs the app on Chromium's fake camera with the simulated filter attached.
+- With the camera registered, `test/real-filter.test.mjs` sends a test picture through the real filter and reads it back with ffmpeg, pixel for pixel. `node eval/live-vcam.mjs` runs the whole chain: webcam, app, "Sunroom Camera", ffmpeg and Chrome.
 
 ## Linux
 
@@ -57,7 +58,7 @@ How the backend behaves:
 Checks:
 
 - `test/v4l2-pipe.test.mjs` runs the backend with ffmpeg writing a raw RGBA file instead of the device, on any OS with ffmpeg on PATH. It checks the frame count, size and every pixel, the restart on a new size, the dropped frame, and the back-off. It passes on Windows 10.
-- `test/v4l2-device.test.mjs` sends frames into the real device while a second ffmpeg reads them back, and compares them within what yuv420p allows. It runs only on Linux with the device loaded. It has not run yet.
+- `test/v4l2-device.test.mjs` sends frames into the real device while a second ffmpeg reads them back, and compares them within what yuv420p allows. It runs only on Linux with the device loaded. It has not passed yet: on its first CI run the device node was not writable.
 
 Not tested at all: an app such as Zoom, Chrome or OBS reading the device.
 

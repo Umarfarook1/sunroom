@@ -66,6 +66,62 @@ areas come out 3.2 times noisier than with Sunroom, and colours wash out.
 One camera, one room, one person. The harness is in `eval/` so you can score your own.
 <!-- results:end -->
 
+## How it compares
+
+### Measured against two published neural enhancers
+
+Zero-DCE++ (TPAMI 2021) and SCI (CVPR 2022) are well-known neural networks for brightening dark
+pictures. Both ran on the same 6 clips and were scored by the same code. Each frame is enhanced on
+its own, the way the authors' test scripts do it.
+
+| Measure | Zero-DCE++ | SCI | Sunroom |
+|---|---:|---:|---:|
+| Face brightness (0 to 255, healthy is 95 to 150) | 110 | 148 | 104 |
+| Picture clipped to white (%), lower is better | 0.01 | 20.3 | 0.02 |
+| Face contrast against grain, higher is better | 26.6 | 22.7 | 51.1 |
+| Noise in dark areas (grey levels), lower is better | 6.35 | 7.74 | 2.20 |
+| Brightness wobble between frames (%), lower is better | 0.04 | 0.02 | 0.54 |
+| Fine detail against the camera's own recording (1.00 is equal) | 1.15 | 1.18 | 1.02 |
+| Skin colour error, lower is better | 14.6 | 14.5 | 2.9 |
+| Shirt colour error, lower is better | 25.2 | 40.7 | 4.8 |
+| Wall colour error, lower is better | 14.6 | 4.9 | 6.2 |
+| Time per 720p frame on the test laptop | 147 ms on CPU | 89 ms on CPU | 12 ms on integrated graphics |
+
+- **Where Sunroom wins.** Noise, face contrast against grain, and colour. Both networks brighten
+  the grain along with the face and turn it into coloured speckle in the shadows. Neither removes
+  a colour cast. SCI clips a fifth of the picture to white on these clips.
+- **Where the networks win.** Brightness wobble and fine detail, and SCI on wall colour. They
+  have no state between frames, so they cannot wobble. Sunroom's wobble is the first second of
+  each clip, while its exposure settles.
+- **How fair this is.** Not fully, in both directions. These networks were trained on still
+  photos, not webcam video, and have no denoiser and no white balance. Three of the measures
+  read noise from frame to frame, which Sunroom's filtering over time is built to cut. The
+  measures were written while tuning Sunroom. The timing compares PyTorch on 2 CPU threads with
+  shaders on a GPU; the networks would be faster on a GPU, which this laptop does not have for
+  them.
+
+Rerun it with `eval/neural_baselines.py`. The weights are not in this repo: Zero-DCE++ is
+licensed for non-commercial research only.
+
+### Against the tools people use today
+
+This table is from each tool's own documentation and from user reports, not from tests here.
+The sources are in `research/01-landscape.md`.
+
+| | Sunroom | NVIDIA Broadcast | Windows Studio Effects | OBS with a low-light plugin | Zoom, Meet and Teams settings | Brightness extensions |
+|---|---|---|---|---|---|---|
+| Price and licence | Free, MIT | Free, closed | Comes with the PC, closed | Free, GPL | Free, closed | Free to paid |
+| Needs | A browser with WebGL2 | An RTX 2060 or better | A Windows 11 PC with an NPU | OBS, the plugin, and CPU to spare | Nothing | Nothing |
+| Runs on | Windows, macOS and Linux in the browser; the virtual camera on Windows | Windows | Windows 11 | Windows, macOS, Linux | Inside that app only | Browser calls only |
+| Automatic in low light | Yes | Partly, once switched on | Partly, toggles | A filter you add | Yes in Zoom and Meet | No, sliders |
+| Sets the camera's own exposure and gain | Yes, in Chromium browsers | No | No | No | No | No |
+| Meters exposure on the face | Yes | No | No | No | Not documented | No |
+| Cleans up noise | Yes | Yes | No | Not documented | A Zoom option | No |
+
+What none of them do is work at both layers: steer the camera so it stops dropping frames in the
+dark, then clean and tone what the sensor recorded. That is the part Sunroom adds. What Sunroom
+does not have: background blur, relighting, eye contact, or a virtual camera on macOS or Linux.
+
 ## Try it
 
 Requires Node 20 or later and Chrome or another Chromium browser.
@@ -116,9 +172,10 @@ Developed and measured on one laptop: Windows 10, Intel UHD graphics, a 720p Son
 | Enhancement engine | Works | Unit tests, and scored on recorded clips (see Results) |
 | Camera control | Works on the one webcam tried | Live runs in Chrome on Windows 10: frame rate held at 30 fps, sensor gain raised in the dark, gain put back and exposure returned to automatic on stop |
 | Web app | Works | 16 end-to-end checks on Chrome's fake camera, plus live runs on the real webcam |
-| Browser extension | Works in tests | 13 end-to-end checks in Chromium, including a page with a strict content security policy, a cross-origin iframe, a background tab and a machine without WebGL2. On the real webcam it steered the camera and put the settings back, both on stop and when the tab was closed. On real pages (fake camera, nothing sent out): a WebRTC peer-connection call where the far end shows the enhanced picture, the Jitsi Meet pre-join screen, and webcamtests.com. Not yet tried on Google Meet, Zoom or Teams, which need a login |
+| Browser extension | Works in tests | 14 end-to-end checks in Chromium, including a page with a strict content security policy, a cross-origin iframe, a background tab and a machine without WebGL2. On the real webcam it steered the camera and put the settings back, both on stop and when the tab was closed. On real pages (fake camera, nothing sent out): a WebRTC peer-connection call where the far end shows the enhanced picture, the Jitsi Meet pre-join screen, and webcamtests.com. Not yet tried on Google Meet, Zoom or Teams, which need a login |
 | Desktop app on Windows | Works with the real virtual camera | Registered for one user without admin rights, then the whole chain on real hardware: webcam, Sunroom, "Sunroom Camera", read by ffmpeg through DirectShow and by Chrome through `getUserMedia` at 1280x720 and 29 fps. The real filter returns a test picture pixel for pixel, upright and in order. Not yet tried inside Zoom or Teams themselves |
-| Desktop app on Linux and macOS | Not built | The researched route for each is in `apps/desktop/PLATFORMS.md` |
+| Desktop app on Linux | Parked, not working yet | A virtual camera through v4l2loopback and ffmpeg is written and its pipe is tested. It has not passed a test on a real Linux device. Windows is being finished first |
+| Desktop app on macOS | Not built | The researched route is in `apps/desktop/PLATFORMS.md` |
 | Linux, macOS and the Windows 11 family (engine and extension) | Works on GitHub's test machines | Every push runs the unit tests and `eval/smoke.mjs` on Linux x64, macOS on Apple silicon and Windows build 26100 (the Windows 11 24H2 family, server edition): a dark synthetic clip goes from brightness 22 to 105 through the engine, and a plain page gets the enhanced camera from the extension. Those machines have no webcam, so camera control stays tried on Windows 10 only; on Linux Chrome exposes no sensor gain, so only the frame-rate hold could apply there |
 | Firefox and Safari | Not tried | They expose no camera controls, so only the picture enhancement can apply |
 
