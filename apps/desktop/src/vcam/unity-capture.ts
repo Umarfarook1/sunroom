@@ -38,6 +38,8 @@ const TIMEOUT_MS = 1000;
 const POLL_MS = 1000;
 // a reading app sets Want at least every 200 ms (shared.inl 42, 54), so 2.5 s of silence means it stopped
 const LIVE_MS = 2500;
+// after an app connects, the real camera may have to start before our first frame can go out
+const CONNECT_MS = 8000;
 const LOCK_MS = 100;
 
 const SYNCHRONIZE = 0x00100000;
@@ -144,7 +146,7 @@ export class UnityCaptureOutput implements VirtualCameraOutput {
   private tick(): void {
     if (this.view) this.noteWant();
     // a new mapping has width 0, so the filter asks for nothing until our first frame: count the connect itself as a request
-    else if (this.open()) this.lastWantMs = performance.now();
+    else if (this.open()) this.lastWantMs = performance.now() + CONNECT_MS - LIVE_MS;
     const next: VirtualCameraState = !this.view
       ? filterRegistered() ? 'waiting' : 'not-installed'
       : performance.now() - this.lastWantMs < LIVE_MS ? 'sending' : 'waiting';

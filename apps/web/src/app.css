@@ -305,7 +305,7 @@ select {
 
 /* Views */
 body:is([data-view="live"], [data-view="untouched"]) .message { display: none; }
-body:is([data-view="waiting"], [data-view="problem"]) :is(.panel, .advanced) { display: none; }
+body:is([data-view="waiting"], [data-view="resting"], [data-view="problem"]) :is(.panel, .advanced) { display: none; }
 body[data-view="untouched"] .before { clip-path: none; }
 body[data-view="untouched"] :is(.after, .split, .divider, .tag, .controls, .numbers, .advanced) { display: none; }
 body[data-view="untouched"] .dot { background: var(--accent); }

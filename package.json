@@ -8,7 +8,7 @@
     "apps/*"
   ],
   "scripts": {
-    "test": "vitest run --no-file-parallelism",
+    "test": "vitest run --no-file-parallelism --exclude .claude/**",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "npm run build -w apps/web && npm run build -w apps/extension && npm run build -w apps/desktop",
     "web": "npm run dev -w apps/web",

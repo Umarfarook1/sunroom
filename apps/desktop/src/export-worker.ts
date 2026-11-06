@@ -1,8 +1,8 @@
 // Worker started by the injected exporter. It owns the port to the main process, turns each enhanced frame into
 // RGBA and posts it there, all off the page's main thread so the enhancer keeps its frame rate.
 
-type FromPage = { type: 'port'; port: MessagePort } | { type: 'frame'; frame: VideoFrame } | { type: 'stop' };
-type FromMain = { type: 'state'; state: string; text: string; pump: boolean } | { type: 'ack'; mainMs: number; transitMs: number };
+type FromPage = { type: 'port'; port: MessagePort } | { type: 'frame'; frame: VideoFrame } | { type: 'stop' } | { type: 'setup' };
+type FromMain = { type: 'state' } | { type: 'ack'; mainMs: number; transitMs: number };
 
 const MAX_IN_FLIGHT = 2;
 /** Running totals: readMs per frame read, postMs per frame posted, mainMs and transitMs per ack. */
@@ -114,6 +114,8 @@ addEventListener('message', ({ data }: MessageEvent<FromPage>) => {
   } else if (data.type === 'stop') {
     rb?.dispose(); // no stale picture is left to send when an app connects again
     rb = null;
+  } else if (data.type === 'setup') {
+    port?.postMessage({ type: 'setup' });
   } else {
     port?.close();
     port = data.port;

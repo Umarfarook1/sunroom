@@ -1,5 +1,6 @@
 // Sunroom desktop: one window running the web UI, whose enhanced frames feed a system virtual camera
 // that native apps (Zoom, Teams, Discord, OBS) can pick.
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -21,9 +22,10 @@ const pageRoot = fs.existsSync(path.join(webDist, 'index.html')) ? webDist : pat
 const ORIGIN = 'sunroom://app';
 const isOwn = (url: string) => url.startsWith(`${ORIGIN}/`);
 const registerScript = path.join(app.getAppPath(), 'tools', 'register-virtual-camera.ps1');
+const filterDir = path.join(app.getAppPath(), 'vendor', 'unitycapture');
 
 const STATE_TEXT: Record<VirtualCameraState, string> = {
-  'not-installed': `Virtual camera not installed. To try it (per-user, unverified), run: powershell -ExecutionPolicy Bypass -File "${registerScript}" -Install`,
+  'not-installed': 'Other apps cannot see "Sunroom Camera" yet.',
   waiting: 'Virtual camera ready. Waiting for an app to open "Sunroom Camera".',
   sending: 'Sending to an app that opened "Sunroom Camera".',
   unsupported: 'No virtual camera on this OS yet. See apps/desktop/PLATFORMS.md.',
@@ -48,10 +50,48 @@ let quitting = false;
 // Windows hears when an app starts reading. v4l2loopback never says, so Linux feeds the device whenever it is set up.
 const wantsFrames = (state: VirtualCameraState) => state === 'sending' || (process.platform === 'linux' && state === 'waiting');
 
-const onState = (state: VirtualCameraState) => {
-  port?.postMessage({ type: 'state', state, text: STATE_TEXT[state], pump: wantsFrames(state) });
-  tray?.setToolTip(`Sunroom: ${STATE_TEXT[state]}`);
+const RELEASE_AFTER_MS = 5000;
+let cameraOn = true;
+let letGo: NodeJS.Timeout | null = null;
+let setupNote: string | null = null;
+
+/** Tells the page what the virtual camera is doing and whether anything needs the real camera right now. */
+function tell(): void {
+  const state = vcam?.state ?? 'unsupported';
+  const wanted = (!!win && win.isVisible() && !win.isMinimized()) || wantsFrames(state);
+  if (wanted) {
+    if (letGo) clearTimeout(letGo);
+    letGo = null;
+    cameraOn = true;
+  } else if (cameraOn && !letGo) {
+    // not at once: an app that reopens the camera within a few seconds should not find it cold
+    letGo = setTimeout(() => {
+      letGo = null;
+      cameraOn = false;
+      tell();
+    }, RELEASE_AFTER_MS);
+  }
+  const text = setupNote ?? STATE_TEXT[state];
+  port?.postMessage({ type: 'state', state, text, pump: wantsFrames(state), camera: cameraOn, setup: process.platform === 'win32' && state === 'not-installed' });
+  tray?.setToolTip(`Sunroom: ${text}`.slice(0, 127)); // Windows cuts tray tooltips at 127 characters
+}
+
+const onState = () => {
+  setupNote = null;
+  tell();
 };
+
+/** Adds or removes "Sunroom Camera" for this Windows user. The backend's own poll notices the change. */
+function registerCamera(flag: '-Install' | '-Uninstall'): void {
+  const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', registerScript, flag, '-Yes', ...(flag === '-Install' ? ['-SourceDir', filterDir] : [])];
+  execFile('powershell.exe', args, { windowsHide: true }, (err, stdout, stderr) => {
+    if (!err) return;
+    console.error('[sunroom] camera setup failed:', stdout, stderr);
+    const why = [...stderr.split(/\r?\n/), ...stdout.split(/\r?\n/)].map((l) => l.trim()).find(Boolean) ?? err.message;
+    setupNote = `Could not ${flag === '-Install' ? 'set up' : 'remove'} "Sunroom Camera": ${why}`;
+    tell();
+  });
+}
 
 interface FrameMessage {
   type: 'frame';
@@ -66,7 +106,8 @@ function connectPage(w: BrowserWindow): void {
   port?.close();
   const { port1, port2 } = new MessageChannelMain();
   port = port1;
-  port1.on('message', ({ data }: { data: FrameMessage }) => {
+  port1.on('message', ({ data }: { data: FrameMessage | { type: 'setup' } }) => {
+    if (data?.type === 'setup' && process.platform === 'win32' && vcam?.state === 'not-installed') return registerCamera('-Install');
     if (data?.type !== 'frame') return;
     const t0 = performance.now();
     try {
@@ -78,7 +119,7 @@ function connectPage(w: BrowserWindow): void {
   });
   port1.start();
   w.webContents.postMessage('sunroom:port', null, [port2]);
-  if (vcam) onState(vcam.state);
+  tell();
 }
 
 function createWindow(): BrowserWindow {
@@ -104,6 +145,8 @@ function createWindow(): BrowserWindow {
     // install the exporter's listener first, then hand it the port
     w.webContents.executeJavaScript(exporter).then(() => connectPage(w), (err) => console.error('[sunroom] exporter failed:', err));
   });
+  // the real camera is let go while nobody looks at the picture and no app reads the virtual camera
+  for (const event of ['show', 'hide', 'minimize', 'restore'] as const) w.on(event as 'show', tell);
   w.on('close', (e) => {
     if (quitting || !tray) return;
     e.preventDefault(); // the camera keeps feeding other apps from the tray
@@ -160,8 +203,9 @@ void app.whenReady().then(() => {
   const toggle = () => (win?.isVisible() ? win.hide() : win?.show());
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show / Hide', click: toggle },
+    { label: 'Remove Sunroom Camera from this PC', visible: process.platform === 'win32', click: () => registerCamera('-Uninstall') },
     { label: 'Quit', click: () => app.quit() },
   ]));
   tray.on('click', toggle);
-  onState(vcam.state);
+  tell();
 });

@@ -32,7 +32,10 @@ param(
   [switch]$Uninstall,
   [switch]$Yes,
   # where the filter DLLs live; they are never loaded by this script
-  [string]$DllDir = (Join-Path $env:LOCALAPPDATA 'sunroom\vcam')
+  [string]$DllDir = (Join-Path $env:LOCALAPPDATA 'sunroom\vcam'),
+  # where the app ships the filter DLLs. They are copied to $DllDir, so an app update never has to
+  # replace a DLL that a running call app has loaded.
+  [string]$SourceDir
 )
 $ErrorActionPreference = 'Stop'
 if ($Install -eq $Uninstall) {
@@ -71,11 +74,17 @@ function Test-EmptyKey([string]$Path) {
 }
 
 if ($Install) {
+  $copies = @()
   $writes = foreach ($v in $Views) {
     $dll = Join-Path $DllDir $v.Dll
-    if (-not (Test-Path -LiteralPath $dll)) { throw "Missing $dll. Download it from https://github.com/schellingb/UnityCapture/tree/master/Install first." }
-    $hash = (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash
-    if ($hash -ne $v.Sha256) { throw "$dll has SHA-256 $hash, expected $($v.Sha256). Refusing to register an unknown DLL." }
+    $have = $dll
+    if (-not (Test-Path -LiteralPath $dll)) {
+      if (-not $SourceDir) { throw "Missing $dll. Download it from https://github.com/schellingb/UnityCapture/tree/master/Install first." }
+      $have = Join-Path $SourceDir $v.Dll
+      $copies += @{ From = $have; To = $dll }
+    }
+    $hash = (Get-FileHash -LiteralPath $have -Algorithm SHA256).Hash
+    if ($hash -ne $v.Sha256) { throw "$have has SHA-256 $hash, expected $($v.Sha256). Refusing to register an unknown DLL." }
     $clsidKey = "$($v.Root)\CLSID\$($v.Clsid)"
     $instanceKey = "$($v.Root)\CLSID\$VideoInputCategory\Instance\$($v.Clsid)"
     [pscustomobject]@{ Key = $clsidKey; Name = '(default)'; Value = $FriendlyName }
@@ -87,7 +96,12 @@ if ($Install) {
   }
   Write-Host 'Will write these string values, for the current user only:'
   $writes | ForEach-Object { Write-Host "  $($_.Key)  $($_.Name) = $($_.Value)" }
+  $copies | ForEach-Object { Write-Host "Will copy $($_.From) to $($_.To)" }
   Confirm-Plan 'Write them?'
+  foreach ($c in $copies) {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $c.To) | Out-Null
+    Copy-Item -LiteralPath $c.From -Destination $c.To
+  }
   foreach ($w in $writes) {
     New-KeyPath $w.Key
     Set-ItemProperty -LiteralPath $w.Key -Name $w.Name -Value $w.Value -Type String

@@ -4,7 +4,9 @@
 
 declare const MediaStreamTrackProcessor: new (init: { track: MediaStreamTrack; maxBufferSize?: number }) => { readable: ReadableStream<VideoFrame> };
 
-type FromWorker = { type: 'state'; state: string; text: string; pump: boolean } | { type: 'took'; stats: object };
+type FromWorker =
+  | { type: 'state'; state: string; text: string; pump: boolean; camera: boolean; setup: boolean }
+  | { type: 'took'; stats: object };
 
 const MAX_QUEUED = 2; // frames waiting in the worker; each one holds a camera buffer
 /** The worker's running totals, plus frames this page dropped because the worker was behind. */
@@ -23,6 +25,14 @@ Object.assign(badge.style, {
   position: 'fixed', left: '8px', bottom: '8px', maxWidth: 'calc(100% - 16px)', zIndex: '2147483647', padding: '6px 10px', borderRadius: '6px',
   font: '12px/1.4 system-ui, sans-serif', color: '#f4f4f4', background: 'rgba(0, 0, 0, 0.7)', userSelect: 'text', overflowWrap: 'anywhere',
 });
+const text = document.createElement('span');
+const setup = Object.assign(document.createElement('button'), { textContent: 'Set up Sunroom Camera', hidden: true });
+Object.assign(setup.style, { marginLeft: '8px', font: 'inherit', padding: '2px 8px', cursor: 'pointer' });
+setup.addEventListener('click', () => {
+  setup.disabled = true; // until the main process answers with a new state
+  worker.postMessage({ type: 'setup' });
+});
+badge.append(text, setup);
 document.body.append(badge);
 
 window.addEventListener('message', (e) => {
@@ -37,8 +47,12 @@ worker.onmessage = ({ data }: MessageEvent<FromWorker>) => {
     Object.assign(stats, data.stats);
     return;
   }
-  badge.textContent = data.text;
+  text.textContent = data.text;
   badge.dataset.state = data.state;
+  setup.hidden = !data.setup;
+  setup.disabled = false;
+  // the page owns the camera; this tells it when nothing shows or reads the picture
+  window.dispatchEvent(new CustomEvent('sunroom:camera', { detail: data.camera }));
   sending = data.pump;
   if (sending) void pump();
   else worker.postMessage({ type: 'stop' });

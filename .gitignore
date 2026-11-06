@@ -7,3 +7,4 @@ dist/
 todo.md
 apps/*/test/shots/
 __pycache__/
+.claude/

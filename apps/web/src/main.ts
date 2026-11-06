@@ -7,7 +7,7 @@ declare global {
   }
 }
 
-type View = { kind: 'waiting' } | { kind: 'live' } | { kind: 'untouched'; why: string } | { kind: 'problem'; problem: Problem };
+type View = { kind: 'waiting' } | { kind: 'resting' } | { kind: 'live' } | { kind: 'untouched'; why: string } | { kind: 'problem'; problem: Problem };
 
 const CAMERA_KEY = 'sunroom.camera';
 
@@ -54,6 +54,10 @@ function show(view: View): void {
   if (view.kind === 'waiting') {
     ui.messageTitle.textContent = 'Waiting for your camera';
     ui.messageBody.textContent = 'Allow camera access when your browser asks.';
+    ui.retry.hidden = true;
+  } else if (view.kind === 'resting') {
+    ui.messageTitle.textContent = 'Camera is off';
+    ui.messageBody.textContent = 'Nothing is using it. It comes back on when you open this window or an app opens Sunroom Camera.';
     ui.retry.hidden = true;
   } else if (view.kind === 'problem') {
     const p = PROBLEMS[view.problem];
@@ -218,6 +222,16 @@ ui.original.addEventListener('loadedmetadata', setRatio);
 ui.original.addEventListener('resize', setRatio);
 navigator.mediaDevices?.addEventListener('devicechange', () => camera && void listCameras(camera));
 addEventListener('pagehide', () => session?.stop());
+// Desktop app only: it asks for the camera to be off while its window is hidden and no app reads Sunroom Camera.
+let resting = false;
+addEventListener('sunroom:camera', (e) => {
+  const wanted = (e as CustomEvent<boolean>).detail;
+  if (wanted === !resting) return;
+  resting = !wanted;
+  if (wanted) return void start();
+  generation++; // a start still in flight must not open the camera after this
+  void release().then(() => resting && show({ kind: 'resting' }));
+});
 
 setSplit();
 setInterval(tick, 250);
