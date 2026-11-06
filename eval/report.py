@@ -98,8 +98,10 @@ def live():
     first, final = next(x for x in s if x['t'] >= 2), s[-1]
     took = next((x for x in s if x['mode'] == 'manual'), None)
     story = (f'Sunroom took over the camera after {took["t"]:.0f} s ({html.escape(took["reason"] or "")}). ' if took else 'The camera was doing fine, so Sunroom left its controls alone. ')
-    return (f'<h2>Live on the real webcam</h2><p>Started from the camera as found. {story}Camera frame rate went from <b>{first["cameraFps"]:.0f}</b> to '
-            f'<b>{final["cameraFps"]:.0f}</b> frames per second, sensor gain from {first["gain"]} to {final["gain"]}, face brightness in the output from '
+    f0, f1 = round(first['cameraFps']), round(final['cameraFps'])
+    rate = f'The camera held <b>{f1}</b> frames per second' if abs(f0 - f1) <= 1 else f'Camera frame rate went from <b>{f0}</b> to <b>{f1}</b> frames per second'
+    return (f'<h2>Live on the real webcam</h2><p>Started from the camera as found. {story}{rate}, '
+            f'sensor gain went from {first["gain"]} to {final["gain"]}, face brightness in the output from '
             f'<b>{fmt(first["faceLumaOut"], 0)}</b> to <b>{fmt(final["faceLumaOut"], 0)}</b>. Enhanced output ran at {d["outFps"]:.0f} fps, about {final["processMs"]:.0f} ms of work per frame, '
             'and the camera settings were put back when the session stopped.</p>'
             f'<details><summary>What the camera control did, second by second</summary><table><thead><tr><th>Time</th><th>Camera fps</th><th>Exposure</th><th>Sensor gain</th>'
