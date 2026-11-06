@@ -100,7 +100,9 @@ npm run desktop
 ```
 
 The app does not install a camera by itself. On Windows it feeds the
-[UnityCapture](https://github.com/schellingb/UnityCapture) filter, which you register once. See
+[UnityCapture](https://github.com/schellingb/UnityCapture) filter, which you register once, for
+your own user and without admin rights, with `apps/desktop/tools/register-virtual-camera.ps1`.
+Apps then list it as "Sunroom Camera". See
 [apps/desktop/PLATFORMS.md](apps/desktop/PLATFORMS.md) for the steps and for Linux and macOS, and
 [Status](#status) for what works today.
 
@@ -115,7 +117,7 @@ Developed and measured on one laptop: Windows 10, Intel UHD graphics, a 720p Son
 | Camera control | Works on the one webcam tried | Live runs in Chrome on Windows 10: frame rate held at 30 fps, sensor gain raised in the dark, gain put back and exposure returned to automatic on stop |
 | Web app | Works | 16 end-to-end checks on Chrome's fake camera, plus live runs on the real webcam |
 | Browser extension | Works in tests | 13 end-to-end checks in Chromium, including a page with a strict content security policy, a cross-origin iframe, a background tab and a machine without WebGL2. On the real webcam it steered the camera and put the settings back, both on stop and when the tab was closed. Not yet tried on Google Meet, Zoom or Teams |
-| Desktop app on Windows | Sends frames. Camera not registered | End-to-end into a simulated camera filter at 30 fps, and a live run on the real webcam. Not yet tried with the real filter inside Zoom or Teams. Registering the filter for one user without admin rights is unproven |
+| Desktop app on Windows | Works with the real virtual camera | Registered for one user without admin rights, then the whole chain on real hardware: webcam, Sunroom, "Sunroom Camera", read by ffmpeg through DirectShow and by Chrome through `getUserMedia` at 1280x720 and 29 fps. The real filter returns a test picture pixel for pixel, upright and in order. Not yet tried inside Zoom or Teams themselves |
 | Desktop app on Linux and macOS | Not built | The researched route for each is in `apps/desktop/PLATFORMS.md` |
 | Windows 11, macOS, Linux (web app and extension) | Not tried | The picture enhancement uses nothing specific to Windows. Camera control was only tried in Chrome on Windows; on Linux Chrome exposes no sensor gain, so only the frame-rate hold could apply there |
 | Firefox and Safari | Not tried | They expose no camera controls, so only the picture enhancement can apply |

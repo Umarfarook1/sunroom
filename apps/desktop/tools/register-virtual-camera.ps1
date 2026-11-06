@@ -8,9 +8,9 @@
   registry entries under HKEY_CURRENT_USER only: no admin rights, nothing machine-wide, nothing at startup.
   It prints every value it will write or delete and asks before doing it, unless you pass -Yes.
 
-  UNVERIFIED: per-user DirectShow registration. No project or Microsoft document shows a capture filter
-  registered only under HKCU being listed by Chrome, Zoom or Teams (apps/desktop research notes,
-  research/02-platform-plumbing.md section 1.3). Known limits even if it works:
+  Per-user registration was tried on one Windows 10 machine: ffmpeg (DirectShow) and Chrome both listed
+  "Sunroom Camera" and read video from it (eval/live-vcam.mjs, apps/desktop/test/real-filter.test.mjs).
+  Not tried: Zoom, Teams, other Windows versions. Known limits:
   - Apps run "as administrator" ignore per-user COM entries and will not see the camera.
   - 32-bit apps read the WOW6432Node entries, which point at the 32-bit DLL with its own class ID.
   - No FilterData value is written; whether DirectShow needs it to list a capture source is unverified.
