@@ -50,6 +50,30 @@ describe('direct', () => {
     expect(s.lastCommandMs).toBe(3600);
   });
 
+  it('takes over a camera that holds its frame rate but leaves the face starved of light', () => {
+    const dark = { fps: 30, shortfallStops: 5.3, p98: 0.4 };
+    const at32 = { ...auto, exposureTime: 312.5 };
+    let d = direct(initialDirectorState(), caps, at32, input({ nowMs: 2000, ...dark }));
+    expect(d.command).toBeNull();
+    d = direct(d.state, caps, at32, input({ nowMs: 3600, ...dark }));
+    expect(d.command).toEqual({ exposureMode: 'manual', exposureTime: 312.5 });
+    d = direct(d.state, caps, { ...manual, gain: 1 }, input({ nowMs: 5000, ...dark }));
+    expect(d.command).toEqual({ exposureCompensation: 2 });
+  });
+
+  it('does not take over a starved face when that would lengthen the shutter or clip the highlights', () => {
+    const run = (settings: CameraSettings, over: Partial<DirectorInput>) => {
+      const d = direct(initialDirectorState(), caps, settings, input({ nowMs: 2000, shortfallStops: 5.3, ...over }));
+      return direct(d.state, caps, settings, input({ nowMs: 3600, shortfallStops: 5.3, ...over })).command;
+    };
+    // a bright window behind the person: auto exposure chose a short shutter, 1/32 s would blow the scene
+    expect(run({ ...auto, exposureTime: 39.0625 }, { p98: 0.4 })).toBeNull();
+    expect(run({ ...auto, exposureTime: 312.5 }, { p98: 0.9 })).toBeNull();
+    expect(run({ ...auto, exposureTime: 312.5, gain: 8 }, { p98: 0.4 })).toBeNull();
+    // 2 stops is within what software brightening does well
+    expect(run({ ...auto, exposureTime: 312.5 }, { p98: 0.4, shortfallStops: 2 })).toBeNull();
+  });
+
   it('forgets a brief dip', () => {
     let d = direct(initialDirectorState(), caps, auto, input({ nowMs: 2000, fps: 15 }));
     d = direct(d.state, caps, auto, input({ nowMs: 2500, fps: 30 }));

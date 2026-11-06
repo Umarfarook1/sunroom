@@ -1,10 +1,11 @@
 // The director decides when to take the camera's own controls away from its firmware.
 // Pure: capabilities, settings and measurements in, at most one command out. The session applies it.
 //
-// Policy is minimal intervention. A camera whose auto exposure holds the frame rate is left alone.
-// When auto exposure stretches the shutter and halves the frame rate, the director pins the longest
-// shutter that still fits the frame period and makes up light with sensor gain, which is cleaner
-// than brightening 8-bit video afterwards.
+// Policy is minimal intervention. A camera whose auto exposure holds the frame rate and lights the
+// face is left alone. The director takes over in two cases: auto exposure stretched the shutter and
+// halved the frame rate, or it has no shutter left at this frame rate and the face is still far too
+// dark. It then pins the longest shutter that fits the frame period and makes up light with sensor
+// gain, which is cleaner than brightening 8-bit video afterwards.
 
 export interface Range {
   min: number;
@@ -59,7 +60,7 @@ export interface Command {
 export interface DirectorState {
   mode: 'observe' | 'manual';
   lastCommandMs: number;
-  /** When the frame rate first dropped (observe) or the scene first became too bright (manual). */
+  /** When the frame rate first dropped or the face first starved (observe), or the scene first became too bright (manual). */
   sinceMs: number | null;
   /** No takeover before this time: avoids flapping after handing control back. */
   holdOffUntilMs: number;
@@ -100,6 +101,7 @@ const HOLD_OFF_MS = 8000;
 const CEILING_MS = 30000;
 const P98_HEADROOM = 0.8; // only add gain while highlights have room
 const P98_CLIPPING = 0.95;
+const STARVED_STOPS = 2.5; // past this much software brightening, sensor gain gives the cleaner picture
 
 /** Longest shutter the camera supports that still fits one frame period. */
 export function shutterFor(fps: number, r: Range): number {
@@ -152,17 +154,30 @@ export function direct(state: DirectorState, caps: CameraCaps, settings: CameraS
   }
 
   if (state.mode === 'observe') {
+    if (!caps.manualExposure || !caps.exposureTime || input.nowMs < state.holdOffUntilMs) return idle({ ...state, sinceMs: null });
+    const pin = shutterFor(input.nominalFps, caps.exposureTime);
     // few frames arriving while we are the bottleneck says nothing about the camera
     const slow = input.fps < input.nominalFps * 0.75 && input.busy < 0.5;
-    if (!slow || !caps.manualExposure || !caps.exposureTime || input.nowMs < state.holdOffUntilMs) {
-      return idle({ ...state, sinceMs: null });
-    }
+    // auto exposure is already at the longest shutter this frame rate allows, so pinning it there costs
+    // nothing, and gain is the only light left; with no headroom in the highlights gain would not be used
+    const starved =
+      input.shortfallStops > STARVED_STOPS &&
+      input.p98 < P98_HEADROOM &&
+      settings.exposureTime !== undefined &&
+      settings.exposureTime >= pin - 1e-6 &&
+      !!caps.gain &&
+      settings.gain !== undefined &&
+      settings.gain < caps.gain.max &&
+      state.gainWorks;
+    if (!slow && !starved) return idle({ ...state, sinceMs: null });
     if (state.sinceMs === null) return idle({ ...state, sinceMs: input.nowMs });
     if (input.nowMs - state.sinceMs < SLOW_FOR_MS) return idle(state);
     return sent(
       { ...state, mode: 'manual', sinceMs: null, gainProbe: null },
-      { exposureMode: 'manual', exposureTime: shutterFor(input.nominalFps, caps.exposureTime) },
-      `camera fell to ${input.fps.toFixed(0)} fps; pinning the shutter to hold ${input.nominalFps} fps`,
+      { exposureMode: 'manual', exposureTime: pin },
+      slow
+        ? `camera fell to ${input.fps.toFixed(0)} fps; pinning the shutter to hold ${input.nominalFps} fps`
+        : 'face is dark and the camera has no shutter left; taking over to add sensor gain',
     );
   }
 
