@@ -19,6 +19,7 @@ export interface CameraCaps {
   /** Sensor gain. Chromium exposes it as `exposureCompensation` on Windows. */
   gain?: Range;
   manualExposure: boolean;
+  autoExposure: boolean;
   autoWhiteBalance: boolean;
   brightness?: Range;
 }
@@ -37,6 +38,8 @@ export interface DirectorInput {
   fps: number;
   /** Frame rate the stream was opened at. */
   nominalFps: number;
+  /** Share of wall time spent enhancing, 0..1. Near 1 means frames are late because of us, not the camera. */
+  busy: number;
   /** Stops of brightening the software still has to add (negative: scene is brighter than needed). */
   shortfallStops: number;
   /** 98th percentile of scene luminance, linear 0..1. */
@@ -67,6 +70,7 @@ export interface DirectorState {
   gainCeiling: number | null;
   ceilingUntilMs: number;
   whiteBalanceChecked: boolean;
+  exposureChecked: boolean;
 }
 
 export interface Direction {
@@ -86,6 +90,7 @@ export const initialDirectorState = (): DirectorState => ({
   gainCeiling: null,
   ceilingUntilMs: 0,
   whiteBalanceChecked: false,
+  exposureChecked: false,
 });
 
 const SETTLE_MS = 1200; // cameras need about a second to apply and stabilise a control change
@@ -127,6 +132,16 @@ export function direct(state: DirectorState, caps: CameraCaps, settings: CameraS
     state = s;
   }
 
+  // A shutter someone pinned earlier (possibly us, in a tab that was closed before it could clean up)
+  // is not a starting point we can reason from. Start from the camera's own automatic exposure.
+  if (!state.exposureChecked) {
+    const s = { ...state, exposureChecked: true };
+    if (state.mode === 'observe' && settings.exposureMode === 'manual' && caps.autoExposure) {
+      return sent(s, { exposureMode: 'continuous' }, 'exposure was fixed by hand; back to automatic');
+    }
+    state = s;
+  }
+
   // a negative brightness offset throws away the darkest tones before we ever see them
   if (caps.brightness && settings.brightness !== undefined && input.p02 <= 0 && input.shortfallStops > 0.5) {
     const mid = (caps.brightness.min + caps.brightness.max) / 2;
@@ -137,7 +152,8 @@ export function direct(state: DirectorState, caps: CameraCaps, settings: CameraS
   }
 
   if (state.mode === 'observe') {
-    const slow = input.fps < input.nominalFps * 0.75;
+    // few frames arriving while we are the bottleneck says nothing about the camera
+    const slow = input.fps < input.nominalFps * 0.75 && input.busy < 0.5;
     if (!slow || !caps.manualExposure || !caps.exposureTime || input.nowMs < state.holdOffUntilMs) {
       return idle({ ...state, sinceMs: null });
     }

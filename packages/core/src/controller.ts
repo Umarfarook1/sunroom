@@ -27,7 +27,7 @@ export interface Tuning {
 export const DEFAULT_TUNING: Tuning = {
   faceBand: [0.15, 0.4],
   sceneTarget: 0.19,
-  maxGainStops: 5.5,
+  maxGainStops: 5,
   highlightCeiling: 0.8,
   settleSeconds: 0.6,
   // measured: webcams render skin far less saturated than studio swatches (R/G 1.4 to 1.6 on the dev camera)

@@ -1,0 +1,30 @@
+/* Shared Sunroom tokens: the web app, the extension popup and the desktop app all read these. */
+:root {
+  color-scheme: light dark;
+  --bg: #FAF7F2;
+  --surface: #FFFFFF;
+  --ink: #1B1A17;
+  --ink-muted: #6B665E;
+  --hairline: #E6E0D6;
+  --accent: #D9822B;
+  /* the accent darkened enough for text and focus rings (4.7:1 on --bg) */
+  --accent-ink: #A85A14;
+  --success: #2F7D4F;
+  --stage: #1E1C19;
+  --font: -apple-system, "Segoe UI", system-ui, sans-serif;
+  --radius: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161513;
+    --surface: #201E1B;
+    --ink: #F3EFE8;
+    --ink-muted: #A39C91;
+    --hairline: #34312C;
+    --accent: #E0913F;
+    --accent-ink: #F0A65A;
+    --success: #5BB27E;
+    --stage: #0E0D0C;
+  }
+}

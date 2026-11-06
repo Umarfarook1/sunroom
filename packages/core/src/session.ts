@@ -22,6 +22,8 @@ export interface SessionStatus {
   cameraFps: number;
   /** Milliseconds spent enhancing the last frame. */
   processMs: number;
+  /** Share of the last second spent enhancing, 0..1. Above about 0.7 the device cannot keep up. */
+  busy: number;
   width: number;
   height: number;
   face: FaceBox | null;
@@ -64,6 +66,7 @@ function readCaps(track: MediaStreamTrack): CameraCaps {
     exposureTime: c.exposureTime,
     gain: c.exposureCompensation,
     manualExposure: !!c.exposureMode?.includes('manual'),
+    autoExposure: !!c.exposureMode?.includes('continuous'),
     autoWhiteBalance: !!c.whiteBalanceMode?.includes('continuous'),
     brightness: c.brightness,
   };
@@ -88,6 +91,7 @@ export class CameraSession {
   private directorOn: boolean;
   private stopped = false;
   private arrivals: number[] = [];
+  private work: number[] = [];
   private lastFaceMs = -1e9;
   private faceBusy = false;
   private video: HTMLVideoElement | null = null;
@@ -97,11 +101,12 @@ export class CameraSession {
     this.canvas = useStreams && typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(2, 2) : document.createElement('canvas');
     this.enhancer = new Enhancer(this.canvas, opts);
     this.caps = readCaps(camera);
-    this.original = readSettings(camera);
+    this.original = this.baseline();
     this.directorOn = opts.director ?? true;
     this.status = {
       cameraFps: 0,
       processMs: 0,
+      busy: 0,
       width: 0,
       height: 0,
       face: null,
@@ -157,7 +162,40 @@ export class CameraSession {
     if (this.touched.has('exposureCompensation')) back.exposureCompensation = o.gain;
     if (this.touched.has('brightness')) back.brightness = o.brightness;
     this.touched.clear();
-    await this.camera.applyConstraints({ advanced: [back as MediaTrackConstraintSet] }).catch(() => {});
+    const ok = await this.camera.applyConstraints({ advanced: [back as MediaTrackConstraintSet] }).then(
+      () => true,
+      () => false,
+    );
+    if (ok) this.remember(null);
+  }
+
+  /**
+   * The camera state to return to. A tab can be closed before the controls are put back, and the
+   * camera keeps them, so what we find at start may be our own leftovers: gain and black level
+   * are recovered from a note left at first touch, and exposure goes back to automatic.
+   */
+  private baseline(): CameraSettings {
+    const found = readSettings(this.camera);
+    let saved: Partial<CameraSettings> = {};
+    try {
+      saved = JSON.parse(localStorage.getItem(this.noteKey()) ?? '{}') as Partial<CameraSettings>;
+    } catch {
+      // no storage here: the found state is the best we have
+    }
+    return { ...found, ...saved, exposureMode: this.caps.autoExposure ? 'continuous' : found.exposureMode };
+  }
+
+  private noteKey(): string {
+    return `sunroom.camera.${this.camera.getSettings().deviceId ?? 'default'}`;
+  }
+
+  private remember(original: CameraSettings | null): void {
+    try {
+      if (original) localStorage.setItem(this.noteKey(), JSON.stringify({ gain: original.gain, brightness: original.brightness }));
+      else localStorage.removeItem(this.noteKey());
+    } catch {
+      // best effort
+    }
   }
 
   private fail(why: string): void {
@@ -217,10 +255,15 @@ export class CameraSession {
     const frame = this.enhancer.process(source, w, h, timeMs);
     const now = performance.now();
     this.arrivals.push(now);
-    while (this.arrivals.length > 2 && now - this.arrivals[0]! > 1000) this.arrivals.shift();
+    this.work.push(now - t0);
+    while (this.arrivals.length > 2 && now - this.arrivals[0]! > 1000) {
+      this.arrivals.shift();
+      this.work.shift();
+    }
     const span = now - this.arrivals[0]!;
     const s = this.status;
     s.processMs = now - t0;
+    s.busy = span > 200 ? Math.min(1, this.work.slice(1).reduce((a, b) => a + b, 0) / span) : s.busy;
     s.cameraFps = span > 200 ? ((this.arrivals.length - 1) * 1000) / span : s.cameraFps;
     s.width = w;
     s.height = h;
@@ -254,6 +297,7 @@ export class CameraSession {
       nowMs: now,
       fps: this.status.cameraFps,
       nominalFps,
+      busy: this.status.busy,
       shortfallStops: frame.decision.shortfallStops,
       p98: frame.stats.p98,
       p02: frame.stats.p02,
@@ -263,6 +307,7 @@ export class CameraSession {
     if (!d.command) return;
     this.status.director.lastCommand = d.command;
     this.status.director.lastReason = d.reason;
+    if (!this.touched.size) this.remember(this.original);
     for (const key of Object.keys(d.command) as (keyof Command)[]) this.touched.add(key);
     this.camera.applyConstraints({ advanced: [d.command as MediaTrackConstraintSet] }).catch((err) => {
       // a camera that refuses a control keeps working; we just stop steering it

@@ -6,13 +6,14 @@ const caps: CameraCaps = {
   exposureTime: { min: 9.765625, max: 625, step: 9.765625 },
   gain: { min: 1, max: 8, step: 1 },
   manualExposure: true,
+  autoExposure: true,
   autoWhiteBalance: true,
   brightness: { min: -64, max: 64, step: 1 },
 };
 const auto: CameraSettings = { exposureMode: 'continuous', exposureTime: 625, gain: 1, whiteBalanceMode: 'continuous', brightness: 0 };
 const manual: CameraSettings = { ...auto, exposureMode: 'manual', exposureTime: 312.5 };
-const input = (over: Partial<DirectorInput>): DirectorInput => ({ nowMs: 0, fps: 30, nominalFps: 30, shortfallStops: 0, p98: 0.5, p02: 0.01, ...over });
-const inManual = (over: Partial<DirectorState> = {}): DirectorState => ({ ...initialDirectorState(), mode: 'manual', whiteBalanceChecked: true, ...over });
+const input = (over: Partial<DirectorInput>): DirectorInput => ({ nowMs: 0, fps: 30, nominalFps: 30, busy: 0.3, shortfallStops: 0, p98: 0.5, p02: 0.01, ...over });
+const inManual = (over: Partial<DirectorState> = {}): DirectorState => ({ ...initialDirectorState(), mode: 'manual', whiteBalanceChecked: true, exposureChecked: true, ...over });
 
 describe('shutterFor', () => {
   it('picks 1/32 s on a power-of-two camera at 30 fps', () => {
@@ -53,6 +54,20 @@ describe('direct', () => {
     let d = direct(initialDirectorState(), caps, auto, input({ nowMs: 2000, fps: 15 }));
     d = direct(d.state, caps, auto, input({ nowMs: 2500, fps: 30 }));
     d = direct(d.state, caps, auto, input({ nowMs: 4200, fps: 15 }));
+    expect(d.command).toBeNull();
+  });
+
+  it('does not blame the camera when the device itself cannot keep up', () => {
+    let d = direct(initialDirectorState(), caps, auto, input({ nowMs: 2000, fps: 5, busy: 0.9 }));
+    d = direct(d.state, caps, auto, input({ nowMs: 9000, fps: 5, busy: 0.9 }));
+    expect(d.command).toBeNull();
+    expect(d.state.mode).toBe('observe');
+  });
+
+  it('starts from automatic exposure when it finds the shutter pinned', () => {
+    let d = direct(initialDirectorState(), caps, manual, input({ nowMs: 1000 }));
+    expect(d.command).toEqual({ exposureMode: 'continuous' });
+    d = direct(d.state, caps, auto, input({ nowMs: 5000 }));
     expect(d.command).toBeNull();
   });
 
