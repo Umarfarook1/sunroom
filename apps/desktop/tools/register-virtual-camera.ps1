@@ -32,11 +32,14 @@ param(
   [switch]$Uninstall,
   [switch]$Yes,
   # where the filter DLLs live; they are never loaded by this script
-  [string]$DllDir = (Join-Path $env:LOCALAPPDATA 'sunroom\vcam'),
+  [string]$DllDir = "$env:LOCALAPPDATA\sunroom\vcam",
   # where the app ships the filter DLLs. They are copied to $DllDir, so an app update never has to
   # replace a DLL that a running call app has loaded.
   [string]$SourceDir
 )
+# Started from PowerShell 7 (a terminal, a CI shell), Windows PowerShell inherits its module path and
+# then cannot load its own commands. No command may run before this line.
+if ($PSVersionTable.PSEdition -ne 'Core') { $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine') }
 $ErrorActionPreference = 'Stop'
 if ($Install -eq $Uninstall) {
   Write-Host 'Pass exactly one of -Install or -Uninstall.'

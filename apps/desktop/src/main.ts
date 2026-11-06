@@ -84,9 +84,7 @@ const onState = () => {
 /** Adds or removes "Sunroom Camera" for this Windows user. The backend's own poll notices the change. */
 function registerCamera(flag: '-Install' | '-Uninstall'): void {
   const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', registerScript, flag, '-Yes', ...(flag === '-Install' ? ['-SourceDir', filterDir] : [])];
-  // Started from PowerShell 7, Sunroom inherits its module path, and Windows PowerShell then cannot load its own commands
-  const { PSModulePath: _dropped, ...env } = process.env;
-  execFile('powershell.exe', args, { windowsHide: true, env }, (err, stdout, stderr) => {
+  execFile('powershell.exe', args, { windowsHide: true }, (err, stdout, stderr) => {
     if (!err) return;
     console.error('[sunroom] camera setup failed:', stdout, stderr);
     const why = [...stderr.split(/\r?\n/), ...stdout.split(/\r?\n/)].map((l) => l.trim()).filter(Boolean).slice(0, 3).join(' ') || err.message;
